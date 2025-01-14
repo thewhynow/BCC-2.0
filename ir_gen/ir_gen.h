@@ -8,6 +8,6 @@
 
 #include "../lib/vector/C_vector.h"
 
-ir_func_t* ir_gen(node_t* node);
+ir_node_t* ir_gen(node_t* node);
 
 #endif

@@ -24,4 +24,8 @@ void pback_array(void* array, void* val);
 
 #define get_size_array(array) (*((size_t*)(array) - 3))
 
+#define get_count_array(array) (*((size_t*)(array) - 2))
+
+#define get_elem_size_array(array) (*((size_t*)(array) - 1))
+
 #endif

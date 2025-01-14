@@ -5,6 +5,6 @@
 #define IR_GEN_TYPES
 #include "../globals.h"
 
-void codegen(ir_func_t* nodes, const char* asm_file);
+void codegen(ir_node_t* nodes, const char* asm_file);
 
 #endif

@@ -33,8 +33,8 @@ void pback_array(void** array, void* val){
     typedef uint8_t byte_t;
     
     size_t elem_size = *((size_t*) *array - 1);
-    size_t* count = (size_t*) *array - 2;
-    size_t* size = (size_t*) *array - 3;
+    size_t* count = (size_t*)*array - 2;
+    size_t* size = (size_t*)*array - 3;
 
     if (*count == *size){
         *size += *size / 2 + 1;
