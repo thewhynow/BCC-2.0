@@ -632,7 +632,3 @@ token_type_t is_keyword(const char* str, size_t* increment_counter){
     else
         return TOK_NULL;
 }
-
-void token_dstr(void* token){
-    return;
-}

@@ -7,8 +7,6 @@ size_t frame_size;
 static void ir_gen_func(nod_function_t node);
 static ir_node_t* ir_code;
 
-static ir_node_t null_node = {0};
-
 static symbol_t** function_scope;
 extern scope_t* global_scope;
 
@@ -20,6 +18,8 @@ static size_t get_type_size(base_type_t type);
 
 static void ir_gen_node(node_t node);
 
+void symbol_dstr(void* _symbol);
+
 #define var_gen(size)                      \
     (frame_size += (size), (ir_operand_t){ \
         .type = STK_OFFSET,                \
@@ -29,7 +29,7 @@ static void ir_gen_node(node_t node);
 #define is_unsigned(type) (__UNSIGNED_TYPE_START__ < type.base_type && type.base_type < __UNSIGNED_TYPE_END__)
 
 ir_node_t* ir_gen(node_t* program_ast){
-    global_vars = alloc_array(sizeof(ir_operand_t*), 1);
+    global_vars = alloc_array(sizeof(ir_operand_t), 1);
     ir_code = alloc_array(sizeof(ir_node_t), 1);
 
     for (size_t i = 0; i < get_count_array(global_scope->top_scope); ++i){
@@ -54,6 +54,8 @@ ir_node_t* ir_gen(node_t* program_ast){
 
     for (size_t i = 0; i < get_count_array(program_ast); ++i)
         ir_gen_node(program_ast[i]);
+
+    free_array(global_vars, symbol_dstr);
 
     return ir_code;
 }
@@ -143,6 +145,13 @@ static void ir_gen_func(nod_function_t node){
         frame_size += 16 - (frame_size % 16);
 
     ir_code[func_node_index].op_1.label_id = frame_size;
+
+    size_t x = get_count_array(all_vars);
+
+    /* start at one to skip the global variables */
+    for (size_t i = 1; i < get_count_array(all_vars); ++i)
+        free_array(all_vars[i], ir_node_dstr);
+    free_array(all_vars, NULL);
 }
 
 static ir_operand_t value = {0};
@@ -810,8 +819,8 @@ static void ir_gen_node(node_t node){
 
         case NOD_FOR_LOOP: {
             /* copy-pasted variable resolution code - since for-loops have their own scope */
+            ir_operand_t* old_vars = curr_vars;
             {
-                ir_operand_t* old_vars = curr_vars;
                 curr_vars = alloc_array(sizeof(ir_operand_t), 1);
 
                 ir_operand_t variable;
@@ -901,6 +910,7 @@ static void ir_gen_node(node_t node){
 
             continue_label = old_continue_label;
             break_label = old_break_label;
+            curr_vars = old_vars;
 
             return;
         }
@@ -976,6 +986,8 @@ static void ir_gen_node(node_t node){
                 .dst.label_id = break_label
             };
             pback_array(&ir_code, &ir_node);
+
+            break_label = old_break_label;
 
             return;
         }
@@ -1239,7 +1251,26 @@ static size_t get_type_size(base_type_t type){
     }
 }
 
-void ir_node_dstr(void* _node){}
+void ir_node_dstr(void* _node){
+    ir_node_t* node = _node;
+    switch(node->instruction){
+        case INST_USER_LABEL:
+        case INST_GOTO:
+        case INST_CALL:
+        case INST_INIT_STATIC:
+        case INST_INIT_STATIC_Z:
+        case INST_INIT_STATIC_PUBLIC:
+        case INST_INIT_STATIC_Z_PUBLIC:
+        case INST_INIT_STATIC_LOCAL:
+        case INST_INIT_STATIC_Z_LOCAL:
+        case INST_PUBLIC_FUNC:
+        case INST_STATIC_FUNC:
+            free(node->dst.identifier);
+            return;
+        default:
+            return;
+    }
+}
 
 ir_operand_t ir_gen_function_arg(size_t arg_num){
     

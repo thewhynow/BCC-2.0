@@ -39,6 +39,17 @@ static void parse_error(const char* msg){
     exit(-1);
 }
 
+void symbol_dstr(void* _symbol){
+    symbol_t* symbol = _symbol;
+    if (symbol->symbol_type == SYM_FUNCTION)
+        free_array(symbol->args, symbol_dstr);
+
+    if (symbol->symbol_type == SYM_VARIABLE)
+        free(symbol->name);
+
+    return;       
+}
+
 static size_t token_count = 0;
 static void advance_token(){
     if (token_count < get_count_array(tokens))
@@ -1323,6 +1334,7 @@ void parse_node_dstr(void* _node){
         
         case NOD_RETURN:
             parse_node_dstr(node->return_node.value);
+            free(node->return_node.value);
             return;
         
         case NOD_BLOCK:
@@ -1332,13 +1344,18 @@ void parse_node_dstr(void* _node){
 
         case NOD_FUNC:
             free_array(node->func_node.body.code, parse_node_dstr);
-
+            
             return;
-
+        
+        case NOD_POST_DECREMENT:
+        case NOD_POST_INCREMENT:
+        case NOD_PRE_DECREMENT:
+        case NOD_PRE_INCREMENT:
         case NOD_LOGICAL_NOT: 
         case NOD_UNARY_SUB: 
         case NOD_BITWISE_NOT:
             parse_node_dstr(node->unary_node.value);
+            free(node->unary_node.value);
             return;
 
         case NOD_BINARY_ADD:
@@ -1361,15 +1378,97 @@ void parse_node_dstr(void* _node){
         case NOD_GREATER_THAN_OR_EQUAL:
             parse_node_dstr(node->binary_node.value_a);
             parse_node_dstr(node->binary_node.value_b);
+            free(node->binary_node.value_a);
+            free(node->binary_node.value_b);
             return;
 
         case NOD_ASSIGN:
             parse_node_dstr(node->assign_node.source);
             parse_node_dstr(node->assign_node.destination);
+            free(node->assign_node.source);
+            free(node->assign_node.destination);
+            return;
         
         case NOD_VARIABLE_ACCESS:
-        default:
-            break;
+        case NOD_LONG:
+        case NOD_SHORT:
+        case NOD_CHAR:
+        case NOD_UINTEGER:
+        case NOD_USHORT:
+        case NOD_ULONG:
+        case NOD_UCHAR:
+            return;
+        
+        case NOD_FUNC_CALL: {
+            free_array(node->func_call_node.args, parse_node_dstr);
+            return;
+        }
+
+        case NOD_TERNARY_EXPRESSION:
+        case NOD_IF_STATEMENT: {
+            parse_node_dstr(node->conditional_node.condition);
+            parse_node_dstr(node->conditional_node.true_block);
+            parse_node_dstr(node->conditional_node.false_block);
+            free(node->conditional_node.condition);
+            free(node->conditional_node.true_block);
+            free(node->conditional_node.false_block);
+            return;
+        }
+
+        case NOD_DO_WHILE_LOOP:
+        case NOD_WHILE_LOOP: {
+            parse_node_dstr(node->while_node.code);
+            parse_node_dstr(node->while_node.condition);
+            
+            free(node->while_node.code);
+            free(node->while_node.condition);
+
+            return;
+        }
+
+        case NOD_FOR_LOOP: {
+            parse_node_dstr(node->for_node.init);
+            parse_node_dstr(node->for_node.condition);
+            parse_node_dstr(node->for_node.repeat);
+            parse_node_dstr(node->for_node.code);
+            
+            free(node->for_node.init);
+            free(node->for_node.condition);
+            free(node->for_node.repeat);
+            free(node->for_node.code);
+
+            return;
+        }
+
+        case NOD_SWITCH_STATEMENT: {
+            parse_node_dstr(node->switch_node.value);
+            free_array(node->switch_node.cases, parse_node_dstr);
+
+            free(node->switch_node.value);
+            free_array(node->switch_node.code.code, parse_node_dstr);
+
+            return;
+        }
+
+        case NOD_SWITCH_CASE:
+        case NOD_BREAK:
+        case NOD_CONTINUE:
+        case NOD_LABEL:
+        case NOD_GOTO:
+        case NOD_DEFAULT_CASE:
+            return;
+
+        case NOD_STATIC_INIT: {
+            parse_node_dstr(node->static_init_node.value);
+            free(node->static_init_node.value);
+            return;
+        }
+
+        case NOD_TYPE_CAST: {
+            parse_node_dstr(node->type_cast_node.src);
+            free(node->type_cast_node.src);
+            return;
+        }
     }
 }
 

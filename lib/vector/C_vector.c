@@ -21,7 +21,7 @@ void free_array(void* array, void(*destructor)(void* val)){
 
     if (destructor) {
         size_t* count = (size_t*)array - 2;
-        size_t* elem_size = count - 1;
+        size_t* elem_size = count + 1;
         for (size_t i = 0; i < *count; ++i)
             destructor((byte*)array + (*elem_size * i));
     }
@@ -29,9 +29,7 @@ void free_array(void* array, void(*destructor)(void* val)){
     free((size_t*)array - 3);
 }
 
-void pback_array(void** array, void* val){
-    typedef uint8_t byte_t;
-    
+void pback_array(void** array, void* val){    
     size_t elem_size = *((size_t*) *array - 1);
     size_t* count = (size_t*)*array - 2;
     size_t* size = (size_t*)*array - 3;

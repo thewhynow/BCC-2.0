@@ -124,6 +124,8 @@ void codegen_mov(ir_operand_t src, ir_operand_t dst, size_t size){
         fprintf(asm_file, 
             "%s %s, %s\n", 
             generate_asm_inst("mov", size), alt_val_buff, codegen_val(dst, size));
+
+    free(ax_str);
 }
 
 void codegen_binary(const char* inst, ir_operand_t a, ir_operand_t b, ir_operand_t dst, size_t size){
