@@ -1,0 +1,1 @@
+run the "run.sh" file to compile the c-file "code.c" into assembly file "code.c.s" and into executeable "code"
