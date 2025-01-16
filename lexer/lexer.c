@@ -19,6 +19,8 @@ static inline size_t getpagesize(){
 /* return TOK_NULL (0) on false */
 token_type_t is_keyword(const char* str, size_t* increment_counter);
 
+
+
 token_t* lex(const char* fpath){
     /* neat little trick i learned. the '+' indicates to only open an existing file */
     FILE* c_file = fopen(fpath, "r+");
