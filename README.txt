@@ -8,6 +8,7 @@ FEATURES SUPPORTED:
     1. all c-language constructs
         - loops, functions, switches, etc.
     2. static and file-scope variables
+        - can only be initialized with plain number constants - not constant expressions
     4. types: char, short, int, long + unsigned for all
         - no implicit casts -> even for constants
         - to declare a char, short, or long constant use 'C', 'S', or 'L' suffixes respectively
