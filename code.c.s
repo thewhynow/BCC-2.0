@@ -1,6 +1,6 @@
 .text
-.globl _add
-_add:
+.globl add
+add:
 pushq %rbp
 movq %rsp, %rbp
 subq $16, %rsp
@@ -15,26 +15,14 @@ movl $0, %eax
 movq %rbp, %rsp
 popq %rbp
 ret
-.globl _main
-_main:
+.globl sub
+sub:
 pushq %rbp
 movq %rsp, %rbp
-subq $0, %rsp
-subq $0, %rsp
-movq $1, %rdi
-movb $1, %sil
-movw $0, %dx
-movl $5, %ecx
-movq $0, %r8
-movb $9, %r9b
-pushq $10
-pushq $0
-pushq $0
-pushq $1234567
-pushq $0
-call _add
-addq $40, %rsp
-movl %eax, %eax
+subq $16, %rsp
+movl %edi, -4(%rbp)
+subl %esi, -4(%rbp)
+movl -4(%rbp), %eax
 movq %rbp, %rsp
 popq %rbp
 ret
@@ -42,3 +30,34 @@ movl $0, %eax
 movq %rbp, %rsp
 popq %rbp
 ret
+.globl main
+main:
+pushq %rbp
+movq %rsp, %rbp
+subq $48, %rsp
+movl $12, -4(%rbp)
+movl $1, -12(%rbp)
+movq $0, -24(%rbp)
+L2:
+cmpq $10, -24(%rbp)
+movl $0, -36(%rbp)
+setb -36(%rbp)
+cmpl $0, -36(%rbp)
+je L1
+movl $12, %eax
+movq %rbp, %rsp
+popq %rbp
+ret
+L0:
+movq -24(%rbp), %rax
+movq %rax, -44(%rbp)
+addq $1, -44(%rbp)
+movq -44(%rbp), %rax
+movq %rax, -24(%rbp)
+jmp L2
+L1:
+movl $0, %eax
+movq %rbp, %rsp
+popq %rbp
+ret
+.section .note.GNU-stack, "",@progbits

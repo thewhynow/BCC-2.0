@@ -1,4 +1,4 @@
-clang lexer/lexer.c parser/parser.c ir_gen/ir_gen.c code_gen/code_gen.c lib/vector/C_vector.c typecheck/typecheck.c main.c -lm -o main -Wall -std=c23 -g
+gcc lexer/lexer.c parser/parser.c ir_gen/ir_gen.c code_gen/code_gen.c lib/vector/C_vector.c typecheck/typecheck.c main.c -lm -o main
 ./main code.c code.c.s
 os_type=$(uname)
 
@@ -11,3 +11,5 @@ elif [[ "$os_type" == "Darwin" ]]; then
 else
     echo "Unknown OS: $os_type"
 fi
+
+rm main

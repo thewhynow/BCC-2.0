@@ -18,7 +18,6 @@ static token_t* tokens =    NULL;
 static token_t curr_token = {0};
 static const char* fpath =  NULL;
 static node_t node =        {0};
-static symbol_t symbol =    {0};
 
 /* VARIABLE 'MAP' GLOBALS */
 scope_t* global_scope =   NULL;
@@ -43,10 +42,6 @@ void symbol_dstr(void* _symbol){
     symbol_t* symbol = _symbol;
     if (symbol->symbol_type == SYM_FUNCTION)
         free_array(symbol->args, symbol_dstr);
-
-    if (symbol->symbol_type == SYM_VARIABLE)
-        free(symbol->name);
-
     return;       
 }
 
@@ -95,11 +90,10 @@ void exit_scope(){
             pback_array(&function_scope, &current_scope->top_scope);
     else
         function_scope[current_scope->scope_id] = current_scope->top_scope;
-    
+
     _temp_scope = current_scope->above_scope;
     free(current_scope);
     current_scope = _temp_scope;
-    --__scope_id;
 }
 
 symbol_t* find_symbol(scope_t* scope, symbol_t target, size_t* scope_id_out, size_t* var_num_out){
@@ -139,6 +133,8 @@ node_t* parse(token_t* _tokens, const char* _fpath){
         pback_array(&code, &node);
     }
 
+    
+
     return code;
 }
 
@@ -152,111 +148,97 @@ node_t parse_top_level(){
     data_type_t d_type = parse_type();
 
     if (d_type.base_type){
-        if (curr_token.type == TOK_IDENTIFIER){
-            char* name = curr_token.identifier;
-            advance_token();
-            if (curr_token.type == TOK_OPEN_PAREN){
-                function_scope = alloc_array(sizeof(symbol_t*), 1);
 
-                symbol_t* args = parse_function_args();
+        symbol_t parse_declaration(data_type_t d_type);
 
-                symbol = (symbol_t){
-                    .name = name,
-                    .symbol_type = SYM_FUNCTION,
-                    .data_type = d_type,
-                    .args = args
+        symbol_t symbol = parse_declaration(d_type);
+
+        if (symbol.symbol_type == SYM_FUNCTION){
+            function_scope = alloc_array(sizeof(symbol_t*), 1);
+            pback_array(&function_scope, &global_scope->top_scope);
+            pback_array(&global_scope->top_scope, &symbol);
+            __scope_id = 1;
+
+            if (curr_token.type == TOK_OPEN_BRACE){
+                /* parse block node code, but slightly modified */
+                    advance_token();
+
+                    node_t* code = alloc_array(sizeof(node_t), 1);
+
+                    enter_scope();
+                    
+                    /* easiest way to do this */
+                    current_scope->above_scope = global_scope;
+
+                    for (size_t i = 0; i < get_count_array(symbol.args); ++i)
+                        pback_array(&current_scope->top_scope, symbol.args + i);
+
+                    while (curr_token.type != TOK_CLOSE_BRACE){
+                        node = parse_expr();
+                        pback_array(&code, &node);
+                        if (curr_token.type == TOK_SEMICOLON || curr_token.type == TOK_CLOSE_BRACE)
+                            advance_token();
+                        else
+                            parse_error("expected expression-terminator: '}' or ';'");
+                    }
+
+                    size_t this_scope_id = current_scope->scope_id;
+
+                    exit_scope();
+                /* --- */
+
+                result.type = NOD_FUNC;
+                result.func_node = (nod_function_t){
+                    .args = symbol.args,
+                    .name = symbol.name,
+                    .function_scope = function_scope,
+                    .type = d_type,
+                    /* can assume its block node */
+                    .body = (nod_block_t){
+                        .code = code,
+                        .scope_id = this_scope_id
+                    },
                 };
-                pback_array(&global_scope->top_scope, &symbol);
 
-                if (curr_token.type == TOK_OPEN_BRACE){
-                    /* parse block node code, but slightly modified */
-                        advance_token();
+                advance_token(); /* advance past last '}' */
 
-                        node_t* code = alloc_array(sizeof(node_t), 1);
-
-                        enter_scope();
-                        
-                        /* easiest way to do this */
-                        current_scope->above_scope = global_scope;
-
-                        for (size_t i = 0; i < get_count_array(args); ++i)
-                            pback_array(&current_scope->top_scope, args + i);
-
-                        while (curr_token.type != TOK_CLOSE_BRACE){
-                            node = parse_expr();
-                            pback_array(&code, &node);
-                            if (curr_token.type == TOK_SEMICOLON || curr_token.type == TOK_CLOSE_BRACE)
-                                advance_token();
-                            else
-                                parse_error("expected expression-terminator: '}' or ';'");
-                        }
-
-                        size_t this_scope_id = current_scope->scope_id;
-
-                        pback_array(&function_scope, &global_scope->top_scope);
-                        exit_scope();
-                    /* --- */
-
-                    result.type = NOD_FUNC;
-                    result.func_node = (nod_function_t){
-                        .args = args,
-                        .name = name,
-                        .function_scope = function_scope,
-                        .type = d_type,
-                        /* can assume its block node */
-                        .body = (nod_block_t){
-                            .code = code,
-                            .scope_id = this_scope_id
-                        },
-                    };
-
-                    advance_token(); /* advance past last '}' */
-
-                    return result;
-                } else
-                if (curr_token.type == TOK_SEMICOLON){
-                    advance_token();
-                    return (node_t){
-                        .type = NOD_NULL
-                    };
-                }
-                else
-                    parse_error("expected ';' or '}'");
-                
-            }
-            else {
-                symbol = (symbol_t){
-                    .data_type = d_type,
-                    .name = name,
-                    .symbol_type = SYM_VARIABLE
+                return result;
+            } else
+            if (curr_token.type == TOK_SEMICOLON){
+                advance_token();
+                return (node_t){
+                    .type = NOD_NULL
                 };
-                if (curr_token.type == TOK_SEMICOLON){
-                    symbol.init = false;
-                    pback_array(&global_scope->top_scope, &symbol);
-                    advance_token();
-                    return (node_t){0};
-                } else
-                if (curr_token.type == TOK_ASSIGN){
-                    advance_token();
-                    symbol.init = true;
-                    pback_array(&global_scope->top_scope, &symbol);
-                    node = (node_t){
-                        .type = NOD_STATIC_INIT,
-                        .static_init_node  = (nod_static_init_t){
-                            .sym_info = symbol,
-                            .value = make_node(parse_expr()),
-                            .global = true,
-                        }
-                    };
-                    advance_token();
-                    return node;
-                }
-                else
-                    parse_error("expected ';'");
             }
+            else
+                parse_error("expected ';' or '}'");
+            
         }
-        else
-            parse_error("expected identifier");
+        else {
+            if (curr_token.type == TOK_SEMICOLON){
+                symbol.init = false;
+                pback_array(&global_scope->top_scope, &symbol);
+                advance_token();
+                return (node_t){0};
+            } else
+            if (curr_token.type == TOK_ASSIGN){
+                advance_token();
+                symbol.init = true;
+                pback_array(&global_scope->top_scope, &symbol);
+                node = (node_t){
+                    .type = NOD_STATIC_INIT,
+                    .static_init_node  = (nod_static_init_t){
+                        .sym_info = symbol,
+                        .value = make_node(parse_expr()),
+                        .global = true,
+                    }
+                };
+                advance_token();
+                return node;
+            }
+            else
+                parse_error("expected ';'");
+        }
     }
     else
         parse_error("expected type name");
@@ -334,66 +316,55 @@ node_t parse_fac(){
 
     /* declaration */
     if (d_type.base_type){
-        if (curr_token.type == TOK_IDENTIFIER){
-            char* identifier = curr_token.identifier;
-            advance_token();
+        
+        symbol_t parse_declaration(data_type_t d_type);
 
-            symbol = (symbol_t){
-                .symbol_type = SYM_VARIABLE,
-                .data_type = d_type,
-                .name = identifier
+        symbol_t symbol = parse_declaration(d_type);
+
+        if (curr_token.type == TOK_SEMICOLON){
+            /* variable declarations dont do anything on their own */
+            symbol.init = false;
+            pback_array(&current_scope->top_scope, &symbol);
+            return (node_t){
+                .type = NOD_NULL
             };
-
-            if (curr_token.type == TOK_SEMICOLON){
-                /* variable declarations dont do anything on their own */
-                symbol.init = false;
+        } else
+        if (curr_token.type == TOK_ASSIGN){
+            advance_token();
+            symbol.init = true;
+            pback_array(&current_scope->top_scope, &symbol);
+            if (symbol.data_type.storage_class == STORAGE_STATIC){
+                return (node_t){
+                    .type = NOD_STATIC_INIT,
+                    .static_init_node = (nod_static_init_t){
+                        .sym_info = symbol,
+                        .value = make_node(parse_expr()),
+                        .global = false,
+                    }
+                };
+            }
+            else {
                 pback_array(&current_scope->top_scope, &symbol);
                 return (node_t){
-                    .type = NOD_NULL
-                };
-
-            } else
-            if (curr_token.type == TOK_ASSIGN){
-                advance_token();
-
-                symbol.init = true;
-
-                if (symbol.data_type.storage_class == STORAGE_STATIC){
-                    pback_array(&current_scope->top_scope, &symbol);
-                    return (node_t){
-                        .type = NOD_STATIC_INIT,
-                        .static_init_node = (nod_static_init_t){
-                            .sym_info = symbol,
-                            .value = make_node(parse_expr()),
-                            .global = false,
-                        }
-                    };
-                }
-                else {
-                    pback_array(&current_scope->top_scope, &symbol);
-                    return (node_t){
-                        .type = NOD_ASSIGN,
-                        .assign_node = (nod_assign_t){
-                            .destination = make_node((node_t){
-                                .type = NOD_VARIABLE_ACCESS,
-                                .var_access_node = (nod_var_access_t){
-                                    .var_info = (var_info_t){
-                                        .var_num = find_symbol(current_scope, symbol, NULL, NULL) - current_scope->top_scope,
-                                        .scope_id = current_scope->scope_id,
-                                    }
+                    .type = NOD_ASSIGN,
+                    .assign_node = (nod_assign_t){
+                        .destination = make_node((node_t){
+                            .type = NOD_VARIABLE_ACCESS,
+                            .var_access_node = (nod_var_access_t){
+                                .var_info = (var_info_t){
+                                    .var_num = find_symbol(current_scope, symbol, NULL, NULL) - current_scope->top_scope,
+                                    .scope_id = current_scope->scope_id,
                                 }
-                            }),
-                            .source = make_node(parse_expr())
-                        }
-                    };
-                }
-
+                            }
+                        }),
+                        .source = make_node(parse_expr())
+                    }
+                };
             }
-            else
-                parse_error("expected '=' or ';' after variable declaration");
+
         }
         else
-            parse_error("expected identifier");
+            parse_error("expected '=' or ';' after variable declaration");
     }
     else {
         switch(curr_token.type){
@@ -1344,7 +1315,6 @@ void parse_node_dstr(void* _node){
 
         case NOD_FUNC:
             free_array(node->func_node.body.code, parse_node_dstr);
-            
             return;
         
         case NOD_POST_DECREMENT:
@@ -1483,8 +1453,44 @@ void* array_search(void* array, void* target, bool(*comparison_func)(void* val_a
     return NULL;
 }
 
-symbol_t parse_declaration(){
-    return (symbol_t){0};
+symbol_t parse_declaration(data_type_t d_type){
+    if (curr_token.type == TOK_IDENTIFIER){
+        char* name = curr_token.identifier;
+        advance_token();
+        switch(curr_token.type){
+            /* function declaration */
+            case TOK_OPEN_PAREN: {
+                symbol_t* parse_function_args();
+                symbol_t* args = parse_function_args();
+                return (symbol_t){
+                    .name = name,
+                    .args = args,
+                    .init = false,
+                    .symbol_type = SYM_FUNCTION,
+                    .data_type = d_type
+                };
+            }
+
+            /* variable declaration */
+            case TOK_SEMICOLON:
+            case TOK_ASSIGN: {
+                return (symbol_t){
+                    .name = name,
+                    .init = false,
+                    .symbol_type = SYM_VARIABLE,
+                    .data_type = d_type
+                };
+            }
+
+            default: {
+                parse_error("expected '(', ';', or '=' after declaration");
+            }
+        }
+    }
+    else
+        parse_error("expected identifier after typename");
+
+    MARK_UNREACHABLE_CODE;
 }
 
 data_type_t parse_type(){
@@ -1571,6 +1577,17 @@ data_type_t parse_type(){
                     advance_token();
                 else
                     parse_error("cannot specify signed-ness multiple times in one type");
+                break;
+            }
+
+            case TOK_MUL: {
+                advance_token();
+                data_type_t ptr_base_type = result; 
+                
+                result.base_type = TYPE_POINTER;    
+                result.ptr_derived_type = malloc(sizeof(data_type_t));
+                *result.ptr_derived_type = ptr_base_type;
+
                 break;
             }
 

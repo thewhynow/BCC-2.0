@@ -27,4 +27,9 @@ int main(int argc, char** argv){
         codegen(ir_nodes, "code.c.s");
         free_array(ir_nodes, ir_node_dstr);
     }
+    extern char** all_identifier_strings;
+    for (size_t i = 0; i < get_count_array(all_identifier_strings); ++i)
+        free(all_identifier_strings[i]);
+
+    free_array(all_identifier_strings, NULL);
 }

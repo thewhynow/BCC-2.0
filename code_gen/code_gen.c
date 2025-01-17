@@ -47,6 +47,11 @@ void codegen(ir_node_t* nodes, const char* asm_file_path){
     #endif
 
     fclose(asm_file);
+
+    extern scope_t* global_scope;
+    void symbol_dstr(void* _symbol);
+    free_array(global_scope->top_scope, symbol_dstr);
+    free(global_scope);
 }
 
 void codegen_func(ir_node_t func, storage_class_t storage_class){

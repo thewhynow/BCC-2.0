@@ -182,6 +182,7 @@
         TYPE_UNSIGNED_SHORT,
         TYPE_UNSIGNED_CHAR,
         __UNSIGNED_TYPE_END__,
+        TYPE_POINTER,
     } base_type_t;
 
     typedef enum {
@@ -190,11 +191,16 @@
         STORAGE_EXTERN,
     } storage_class_t;
 
-    typedef struct {
+    typedef struct data_type_t data_type_t;
+
+    struct data_type_t {
         base_type_t base_type;
         storage_class_t  storage_class;
-        bool is_signed;
-    } data_type_t;
+        union {
+            bool is_signed;
+            data_type_t* ptr_derived_type;
+        };
+    };
 
     typedef struct {
         node_t* value;

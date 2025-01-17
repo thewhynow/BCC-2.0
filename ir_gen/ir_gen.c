@@ -55,7 +55,7 @@ ir_node_t* ir_gen(node_t* program_ast){
     for (size_t i = 0; i < get_count_array(program_ast); ++i)
         ir_gen_node(program_ast[i]);
 
-    free_array(global_vars, symbol_dstr);
+    free_array(global_vars, NULL);
 
     return ir_code;
 }
@@ -69,6 +69,8 @@ static void ir_gen_func(nod_function_t node){
     all_vars = alloc_array(sizeof(ir_operand_t*), 1);
     pback_array(&all_vars, &global_vars);
     curr_vars = alloc_array(sizeof(ir_operand_t), 1);
+
+    function_scope[0] = global_scope->top_scope;
 
     ir_node_t ir_node = (ir_node_t){
         .dst.identifier = node.name,
@@ -146,12 +148,15 @@ static void ir_gen_func(nod_function_t node){
 
     ir_code[func_node_index].op_1.label_id = frame_size;
 
-    size_t x = get_count_array(all_vars);
-
-    /* start at one to skip the global variables */
     for (size_t i = 1; i < get_count_array(all_vars); ++i)
-        free_array(all_vars[i], ir_node_dstr);
+        free_array(all_vars[i], NULL);
     free_array(all_vars, NULL);
+
+    size_t x = get_count_array(function_scope);
+
+    for (size_t i = 1; i < get_count_array(function_scope); ++i)
+        free_array(function_scope[i], symbol_dstr);
+    free_array(function_scope, NULL);
 }
 
 static ir_operand_t value = {0};
@@ -1254,19 +1259,6 @@ static size_t get_type_size(base_type_t type){
 void ir_node_dstr(void* _node){
     ir_node_t* node = _node;
     switch(node->instruction){
-        case INST_USER_LABEL:
-        case INST_GOTO:
-        case INST_CALL:
-        case INST_INIT_STATIC:
-        case INST_INIT_STATIC_Z:
-        case INST_INIT_STATIC_PUBLIC:
-        case INST_INIT_STATIC_Z_PUBLIC:
-        case INST_INIT_STATIC_LOCAL:
-        case INST_INIT_STATIC_Z_LOCAL:
-        case INST_PUBLIC_FUNC:
-        case INST_STATIC_FUNC:
-            free(node->dst.identifier);
-            return;
         default:
             return;
     }

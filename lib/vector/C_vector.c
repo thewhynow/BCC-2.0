@@ -17,13 +17,11 @@ void* alloc_array(size_t elem_size, size_t size){
 }
 
 void free_array(void* array, void(*destructor)(void* val)){
-    typedef uint8_t byte;
-
     if (destructor) {
         size_t* count = (size_t*)array - 2;
         size_t* elem_size = count + 1;
         for (size_t i = 0; i < *count; ++i)
-            destructor((byte*)array + (*elem_size * i));
+            destructor((char*)array + (*elem_size * i));
     }
     
     free((size_t*)array - 3);

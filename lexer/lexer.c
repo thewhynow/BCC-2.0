@@ -19,7 +19,7 @@ static inline size_t getpagesize(){
 /* return TOK_NULL (0) on false */
 token_type_t is_keyword(const char* str, size_t* increment_counter);
 
-
+char** all_identifier_strings;
 
 token_t* lex(const char* fpath){
     /* neat little trick i learned. the '+' indicates to only open an existing file */
@@ -42,6 +42,8 @@ token_t* lex(const char* fpath){
     token_t* tok_vec = alloc_array(sizeof(token_t), 1);
 
     token_t token;
+
+    all_identifier_strings = alloc_array(sizeof(char*), 1);
 
     while (!feof(c_file)){
         memset(line_str, 0, getpagesize());
@@ -189,6 +191,8 @@ token_t* lex(const char* fpath){
                             tok_vec[get_count_array(tok_vec) - 1].type = TOK_LABEL;
                             ++i;
                         }
+
+                        pback_array(&all_identifier_strings, &identifier);
 
                         break;
                     }

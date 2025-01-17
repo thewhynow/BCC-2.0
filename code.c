@@ -2,6 +2,20 @@ long add(long a, unsigned char b, short c, signed int d, unsigned long e, char f
     return a + (long)k;
 }
 
+int sub(int a, int b){
+    return a - b;
+}
+
+
+
 int main(){
-    return (int)add(1L, (unsigned char)1, (short)0, 5, 0LU, (char)9, (short)0, 1234567L, (char)0, 0L, 10LU);
+    int a = 12;
+
+    {
+        int b = 1;
+    }
+
+    for (unsigned long i = 0LU; i < 10LU; i += 1LU)
+        return 12;
+
 }
