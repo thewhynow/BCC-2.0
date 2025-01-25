@@ -14,6 +14,11 @@ FEATURES SUPPORTED:
         - to declare a char, short, or long constant use 'C', 'S', or 'L' suffixes respectively
         - to declare an unsigned constant, use the 'U' suffix AFTER the base-type suffix
 
+PARTS OF THE C-STANDARD IGNORED:
+    - allowing function declarations inside scope
+    - operator[] has lower precedence than unary operators
+    ** there are a crap ton more not followed but these are the commonly used ones **
+
 TO COMPILE YOUR OWN CODE:
     1. copy and paste the first line of the "run.sh" file into the terminal
     2. hit "enter"

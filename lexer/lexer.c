@@ -539,6 +539,24 @@ token_t* lex(const char* fpath){
                     break;
                 }
 
+                case '[': {
+                    token = (token_t){
+                        .type = TOK_OPEN_BRACKET,
+                        .line = line_count
+                    };
+                    pback_array(&tok_vec, &token);
+                    break;
+                }
+                
+                case ']': {
+                    token = (token_t){
+                        .type = TOK_CLOSE_BRACKET,
+                        .line = line_count
+                    };
+                    pback_array(&tok_vec, &token);
+                    break;
+                }
+
                 default:{
                     fprintf(stderr, "%s.%lu: Unrecognized Token '%c'\n", fpath, line_count, c);
                     exit(-1);

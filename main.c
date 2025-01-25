@@ -18,15 +18,16 @@ int main(int argc, char** argv){
         free_array(ir_nodes, ir_node_dstr);
     }
     else {
-        token_t* tokens = lex("code.c");
-        node_t* tree = parse(tokens, "code.c");
+        token_t* tokens = lex("code.txt");
+        node_t* tree = parse(tokens, "code.txt");
         free_array(tokens, NULL);
         typecheck(tree);
         ir_node_t* ir_nodes = ir_gen(tree);
         free_array(tree, parse_node_dstr);
-        codegen(ir_nodes, "code.c.s");
+        codegen(ir_nodes, "code.txt.s");
         free_array(ir_nodes, ir_node_dstr);
     }
+
     extern char** all_identifier_strings;
     for (size_t i = 0; i < get_count_array(all_identifier_strings); ++i)
         free(all_identifier_strings[i]);

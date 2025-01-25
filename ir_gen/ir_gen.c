@@ -14,7 +14,7 @@ static ir_operand_t* global_vars;
 static ir_operand_t** all_vars;
 static ir_operand_t* curr_vars;
 
-static size_t get_type_size(base_type_t type);
+static size_t get_type_size(data_type_t type);
 
 static void ir_gen_node(node_t node);
 
@@ -44,7 +44,7 @@ ir_node_t* ir_gen(node_t* program_ast){
                 ir_node_t ir_node = (ir_node_t){
                     .instruction = INST_INIT_STATIC_Z,
                     .dst.identifier = value.identifier,
-                    .op_2.label_id = get_type_size(global_scope->top_scope[i].data_type.base_type),
+                    .op_2.label_id = get_type_size(global_scope->top_scope[i].data_type),
                 };
                 pback_array(&ir_code, &ir_node);
             }
@@ -55,7 +55,7 @@ ir_node_t* ir_gen(node_t* program_ast){
     for (size_t i = 0; i < get_count_array(program_ast); ++i)
         ir_gen_node(program_ast[i]);
 
-    free_array(global_vars, NULL);
+    free_array(global_vars, symbol_dstr);
 
     return ir_code;
 }
@@ -104,7 +104,7 @@ static void ir_gen_func(nod_function_t node){
                     ir_node = (ir_node_t){
                         .instruction = INST_INIT_STATIC_Z_LOCAL,
                         .dst.identifier = function_scope[node.body.scope_id][i].name,
-                        .op_2.label_id = get_type_size(function_scope[node.body.scope_id][i].data_type.base_type)
+                        .op_2.label_id = get_type_size(function_scope[node.body.scope_id][i].data_type)
                     };
                     pback_array(&ir_code, &ir_node);
                 }
@@ -115,7 +115,7 @@ static void ir_gen_func(nod_function_t node){
                     .identifier = function_scope[node.body.scope_id][i].name,
                 };
             else{
-                frame_size += get_type_size(function_scope[node.body.scope_id][i].data_type.base_type);
+                frame_size += get_type_size(function_scope[node.body.scope_id][i].data_type);
 
                 variable = (ir_operand_t){
                     .type = STK_OFFSET,
@@ -171,8 +171,8 @@ void ir_gen_binary_op(ir_inst_t inst, node_t* a, node_t* b){
         .instruction = inst,
         .op_1 = val_a,
         .op_2 = value,
-        .dst = var_gen(get_type_size(a->d_type.base_type)),
-        .size = get_type_size(a->d_type.base_type)
+        .dst = var_gen(get_type_size(a->d_type)),
+        .size = get_type_size(a->d_type)
     };
     pback_array(&ir_code, &ir_node);
 
@@ -195,14 +195,14 @@ void ir_gen_binary_comp(ir_inst_t inst, node_t* a, node_t* b){
         .op_1 = val_a,
         .op_2 = value,
         .dst = var_gen(4),
-        .size = get_type_size(a->d_type.base_type)
+        .size = get_type_size(a->d_type)
     };
     pback_array(&ir_code, &ir_node);
 
     value = ir_node.dst;
 }
 
-static size_t get_type_size(base_type_t type);
+static size_t get_type_size(data_type_t type);
 
 static void ir_gen_node(node_t node){
     static ir_node_t ir_node = (ir_node_t){.instruction = INST_NOP};
@@ -261,7 +261,7 @@ static void ir_gen_node(node_t node){
 
             ir_node = (ir_node_t){
                 .instruction = INST_RET,
-                .size = get_type_size(node.return_node.value->d_type.base_type),
+                .size = get_type_size(node.return_node.value->d_type),
                 .op_1 = value,
             };
             pback_array(&ir_code, &ir_node);
@@ -286,7 +286,7 @@ static void ir_gen_node(node_t node){
                         ir_node = (ir_node_t){
                             .instruction = INST_INIT_STATIC_Z_LOCAL,
                             .dst.identifier = function_scope[node.block_node.scope_id][i].name,
-                            .op_2.label_id = get_type_size(function_scope[node.block_node.scope_id][i].data_type.base_type)
+                            .op_2.label_id = get_type_size(function_scope[node.block_node.scope_id][i].data_type)
                         };
                         pback_array(&ir_code, &ir_node);
                     }
@@ -297,7 +297,7 @@ static void ir_gen_node(node_t node){
                         .identifier = function_scope[node.block_node.scope_id][i].name,
                     };
                 else{
-                    frame_size += get_type_size(function_scope[node.block_node.scope_id][i].data_type.base_type);
+                    frame_size += get_type_size(function_scope[node.block_node.scope_id][i].data_type);
 
                     variable = (ir_operand_t){
                         .type = STK_OFFSET,
@@ -322,7 +322,7 @@ static void ir_gen_node(node_t node){
         case NOD_UNARY_SUB: {
             ir_gen_node(*node.unary_node.value);
 
-            inst_size = get_type_size(node.unary_node.value->d_type.base_type);
+            inst_size = get_type_size(node.unary_node.value->d_type);
 
             ir_node = (ir_node_t){
                 .dst = var_gen(inst_size),
@@ -339,7 +339,7 @@ static void ir_gen_node(node_t node){
         case NOD_BITWISE_NOT: {
             ir_gen_node(*node.unary_node.value);
 
-            inst_size = get_type_size(node.unary_node.value->d_type.base_type);
+            inst_size = get_type_size(node.unary_node.value->d_type);
 
             ir_node = (ir_node_t){
                 .dst = var_gen(inst_size),
@@ -356,7 +356,7 @@ static void ir_gen_node(node_t node){
         case NOD_LOGICAL_NOT: {
             ir_gen_node(*node.unary_node.value);
 
-            inst_size = get_type_size(node.unary_node.value->d_type.base_type);
+            inst_size = get_type_size(node.unary_node.value->d_type);
 
             ir_node = (ir_node_t){
                 .instruction = INST_LOGICAL_NOT,
@@ -435,7 +435,7 @@ static void ir_gen_node(node_t node){
             ir_gen_node(*node.binary_node.value_a);
             ir_node = (ir_node_t){
                 .instruction = INST_JUMP_IF_Z,
-                .size = get_type_size(node.binary_node.value_a->d_type.base_type),
+                .size = get_type_size(node.binary_node.value_a->d_type),
                 .op_1 = value,
                 .op_2.label_id = false_label
             };
@@ -444,7 +444,7 @@ static void ir_gen_node(node_t node){
             ir_gen_node(*node.binary_node.value_b);
             ir_node = (ir_node_t){
                 .instruction = INST_JUMP_IF_Z,
-                .size = get_type_size(node.binary_node.value_b->d_type.base_type),
+                .size = get_type_size(node.binary_node.value_b->d_type),
                 .op_1 = value,
                 .op_2.label_id = false_label
             };
@@ -497,7 +497,7 @@ static void ir_gen_node(node_t node){
 
             ir_node = (ir_node_t){
                 .instruction = INST_JUMP_IF_NZ,
-                .size = get_type_size(node.binary_node.value_a->d_type.base_type),
+                .size = get_type_size(node.binary_node.value_a->d_type),
                 .dst.label_id = true_label,
                 .op_1 = value
             };
@@ -507,7 +507,7 @@ static void ir_gen_node(node_t node){
 
             ir_node = (ir_node_t){
                 .instruction = INST_JUMP_IF_NZ,
-                .size = get_type_size(node.binary_node.value_a->d_type.base_type),
+                .size = get_type_size(node.binary_node.value_a->d_type),
                 .dst.label_id = true_label,
                 .op_1 = value
             };
@@ -583,7 +583,7 @@ static void ir_gen_node(node_t node){
             
             ir_node = (ir_node_t){
                 .instruction = INST_COPY,
-                .size = get_type_size(node.assign_node.destination->d_type.base_type),
+                .size = get_type_size(node.assign_node.destination->d_type),
                 .op_1 = value,
                 .dst = dst,
             };
@@ -601,7 +601,7 @@ static void ir_gen_node(node_t node){
 
             ir_node = (ir_node_t){
                 .instruction = INST_INCREMENT,
-                .size = get_type_size(node.unary_node.value->d_type.base_type),
+                .size = get_type_size(node.unary_node.value->d_type),
                 .dst = value
             };
             pback_array(&ir_code, &ir_node);
@@ -612,7 +612,7 @@ static void ir_gen_node(node_t node){
         case NOD_POST_INCREMENT: {
             ir_gen_node(*node.unary_node.value);
 
-            inst_size = get_type_size(node.unary_node.value->d_type.base_type);
+            inst_size = get_type_size(node.unary_node.value->d_type);
 
             ir_operand_t dst = var_gen(inst_size);
 
@@ -643,7 +643,7 @@ static void ir_gen_node(node_t node){
 
             ir_node = (ir_node_t){
                 .instruction = INST_JUMP_IF_Z,
-                .size = get_type_size(node.conditional_node.condition->d_type.base_type),
+                .size = get_type_size(node.conditional_node.condition->d_type),
                 .dst.label_id = false_label,
                 .op_1 = value
             };
@@ -676,7 +676,7 @@ static void ir_gen_node(node_t node){
         }
 
         case NOD_TERNARY_EXPRESSION: {
-            inst_size = get_type_size(node.conditional_node.condition->d_type.base_type);
+            inst_size = get_type_size(node.conditional_node.condition->d_type);
 
             ir_operand_t dst = var_gen(inst_size);
 
@@ -842,7 +842,7 @@ static void ir_gen_node(node_t node){
                             ir_node = (ir_node_t){
                                 .instruction = INST_INIT_STATIC_Z_LOCAL,
                                 .dst.identifier = function_scope[node.for_node.scope_id][i].name,
-                                .op_2.label_id = get_type_size(function_scope[node.for_node.scope_id][i].data_type.base_type)
+                                .op_2.label_id = get_type_size(function_scope[node.for_node.scope_id][i].data_type)
                             };
                             pback_array(&ir_code, &ir_node);
                         }
@@ -853,7 +853,7 @@ static void ir_gen_node(node_t node){
                             .identifier = function_scope[node.for_node.scope_id][i].name,
                         };
                     else{
-                        frame_size += get_type_size(function_scope[node.for_node.scope_id][i].data_type.base_type);
+                        frame_size += get_type_size(function_scope[node.for_node.scope_id][i].data_type);
 
                         variable = (ir_operand_t){
                             .type = STK_OFFSET,
@@ -953,7 +953,7 @@ static void ir_gen_node(node_t node){
                 ir_gen_node(node.switch_node.cases[i]);
                 ir_node = (ir_node_t){
                     .instruction =  INST_JUMP_IF_EQ,
-                    .size = get_type_size(node.switch_node.value->d_type.base_type),
+                    .size = get_type_size(node.switch_node.value->d_type),
                     .dst.label_id = label_count + i,
                     .op_1 = compare_val,
                     .op_2 = value
@@ -1040,7 +1040,7 @@ static void ir_gen_node(node_t node){
                 ir_gen_node(node.func_call_node.args[i - 1]);
                 ir_node = (ir_node_t){
                     .instruction = INST_COPY,
-                    .size = get_type_size(node.func_call_node.args[i - 1].d_type.base_type),
+                    .size = get_type_size(node.func_call_node.args[i - 1].d_type),
                     .dst = ir_gen_function_arg(i),
                     .op_1 = value
                 };
@@ -1053,7 +1053,7 @@ static void ir_gen_node(node_t node){
                     ir_gen_node(node.func_call_node.args[i]);
                     ir_node = (ir_node_t){
                         .instruction = INST_STACK_PUSH,
-                        .size = get_type_size(node.func_call_node.args[i - 1].d_type.base_type),
+                        .size = get_type_size(node.func_call_node.args[i - 1].d_type),
                         .op_1 = value
                     };
                     pback_array(&ir_code, &ir_node);
@@ -1095,7 +1095,7 @@ static void ir_gen_node(node_t node){
             ir_node = (ir_node_t){
                 .dst.identifier = node.static_init_node.sym_info.name,
                 .op_1 = value,
-                .op_2.label_id = get_type_size(node.static_init_node.value->d_type.base_type)
+                .op_2.label_id = get_type_size(node.static_init_node.value->d_type)
             };
 
             if (node.static_init_node.global){
@@ -1230,6 +1230,74 @@ static void ir_gen_node(node_t node){
             return;
         }
 
+        case NOD_DEREFERENCE: {
+            ir_gen_node(*node.unary_node.value);
+            ir_node = (ir_node_t){
+                .instruction = INST_COPY,
+                .op_1 = value,
+                .dst = (ir_operand_t){.type = REG_AX},
+                .size = get_type_size(node.unary_node.value->d_type)
+            };
+            pback_array(&ir_code, &ir_node);
+
+            value = (ir_operand_t){
+                .type = MEM_ADDRESS
+            };
+
+            return;
+        }
+
+        case NOD_REFERENCE: {
+            ir_gen_node(*node.unary_node.value);
+            ir_node = (ir_node_t){
+                .instruction = INST_GET_ADDRESS,
+                .op_1 = value,
+                .dst = var_gen(8),
+                .size = INST_TYPE_QUADWORD
+            };
+            pback_array(&ir_code, &ir_node);
+
+            value = ir_node.dst;
+
+            return;
+        }
+
+        case NOD_ADD_POINTER: {
+            ir_gen_node(*node.binary_node.value_a);
+            ir_operand_t ptr = value;
+            ir_gen_node(*node.binary_node.value_b);
+            
+            ir_node = (ir_node_t){
+                .instruction = INST_ADD_POINTER,
+                .dst = var_gen(8),
+                .op_1 = ptr,
+                .op_2 = value,
+                .size = get_type_size(*node.binary_node.value_a->d_type.ptr_derived_type)
+            };
+            pback_array(&ir_code, &ir_node);
+
+            value = ir_node.dst;
+
+            return;
+        }
+
+        case NOD_INIT_ARRAY: {
+            data_type_t base_type = node.array_init_node.elems->d_type;
+
+            while (base_type.base_type == TYPE_ARRAY)
+                base_type = *base_type.ptr_derived_type;
+
+            void ir_gen_init_array(node_t* array_elems, ir_operand_t array_start, size_t* count, size_t base_type_size);
+            size_t count = 0;
+            ir_gen_init_array(node.array_init_node.elems->array_literal_node.elems, all_vars[node.array_init_node.array_var.scope_id][node.array_init_node.array_var.var_num], &count, get_type_size(base_type));
+
+            return;
+        }
+
+        case NOD_ARRAY_LITERAL: {
+            return;
+        }
+
         default: {
             perror("unsupported expression");
             exit(-1);
@@ -1237,13 +1305,37 @@ static void ir_gen_node(node_t node){
     }
 }
 
-static size_t get_type_size(base_type_t type){
-    switch(type){
+/* needs to be a different function because its recursive... */
+void ir_gen_init_array(node_t* array_elems, ir_operand_t array_start, size_t* count, size_t base_type_size){
+    for (size_t i = 0; i < get_count_array(array_elems); ++i){
+        if (array_elems[i].d_type.base_type == TYPE_ARRAY)
+            ir_gen_init_array(array_elems[i].array_literal_node.elems, array_start, count, base_type_size);
+        else {
+            ir_gen_node(array_elems[i]);
+            
+            ir_node_t ir_node = (ir_node_t){
+                .instruction = INST_COPY,
+                .op_1 = value,
+                .dst = (ir_operand_t){
+                    .type = STK_OFFSET,
+                    .offset = array_start.offset + (*count)++ * base_type_size
+                },
+                .size = base_type_size
+            };
+
+            pback_array(&ir_code, &ir_node);
+        }
+    }
+}
+
+static size_t get_type_size(data_type_t type){
+    switch(type.base_type){
         case TYPE_INT:
         case TYPE_UNSIGNED_INT:
             return 4;
         case TYPE_LONG:
         case TYPE_UNSIGNED_LONG:
+        case TYPE_POINTER:
             return 8;
         case TYPE_SHORT:
         case TYPE_UNSIGNED_SHORT:
@@ -1251,6 +1343,8 @@ static size_t get_type_size(base_type_t type){
         case TYPE_CHAR:
         case TYPE_UNSIGNED_CHAR:
             return 1;
+        case TYPE_ARRAY:
+            return get_type_size(*type.ptr_derived_type) * type.array_size;
         default:
             return 0;
     }

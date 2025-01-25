@@ -107,6 +107,8 @@ const char* codegen_val(ir_operand_t val, size_t size){
         case STATIC_MEM_LOCAL:
             snprintf(str_buff, 4096, ASM_SYMBOL_PREFIX ".%lu_%s_%s(%%rip)", func_num, func_name, val.identifier);
             return str_buff;
+        case MEM_ADDRESS:
+            return "(%rax)";
         default:
             return NULL;
     }
@@ -820,6 +822,8 @@ void codegen_node(ir_node_t node){
                     "movswl %s, %s\n",
                     str, codegen_val(node.dst, INST_TYPE_LONGWORD));
             }
+
+            free(str);
             
             return;
         }
@@ -940,6 +944,51 @@ void codegen_node(ir_node_t node){
                 free(other_str);
             }
             free(edx_str);
+            return;
+        }
+
+        case INST_GET_ADDRESS: {
+            str = strdup(codegen_val(node.op_1, node.size));
+            
+            if (node.dst.type > ___LVALUE_TYPE_START___){
+                fprintf(asm_file,
+                "lea %s, %%rax\n"
+                "movq %%rax, %s\n",
+                str, codegen_val(node.dst, node.size));
+            }
+            else
+                fprintf(asm_file,
+                "lea %s, %s\n",
+                str, codegen_val(node.dst, node.size));
+
+            free(str);
+            return;
+        }
+
+        case INST_ADD_POINTER: {
+            codegen_mov(node.op_1, (ir_operand_t){.type = REG_AX}, 8);
+            codegen_mov(node.op_2, (ir_operand_t){.type = REG_DX}, 8);
+
+            if (node.size == 1 || node.size == 2 || node.size == 4 || node.size == 8)
+                fprintf(asm_file,
+                "lea (%%rax, %%rdx, %lu), %%rax\n"
+                "movq %%rax, %s\n",
+                node.size, codegen_val(node.dst, 8));
+            else {
+                codegen_node((ir_node_t){
+                    .instruction = INST_MUL,
+                    .dst = (ir_operand_t){.type = REG_R10},
+                    .op_1 = (ir_operand_t){.type = IMM_U64, .immediate = node.size},
+                    .op_2 = (ir_operand_t){.type = REG_DX},
+                    .size = 8
+                });
+
+                fprintf(asm_file,
+                "lea (%%rax, %%r10, 1), %%rax\n"
+                "movq %%rax, %s\n",
+                codegen_val(node.dst, 8));
+            }
+
             return;
         }
     }

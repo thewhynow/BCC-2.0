@@ -55,6 +55,8 @@
         TOK_COLON,
         TOK_LABEL,
         TOK_COMMA,
+        TOK_OPEN_BRACKET,
+        TOK_CLOSE_BRACKET,
         /* KEYWORD START */
         KEYW_int,
         KEYW_return,
@@ -134,8 +136,6 @@
         NOD_LABEL,
         NOD_GOTO,
         NOD_DEFAULT_CASE,
-
-        /* binary operations */
         NOD_BINARY_ADD,
         NOD_BINARY_SUB,
         NOD_BINARY_MUL,
@@ -157,18 +157,23 @@
         NOD_TERNARY_EXPRESSION,
         NOD_STATIC_INIT,
         NOD_TYPE_CAST,
-
-        /* other epxressions */
+        NOD_REFERENCE,
+        NOD_DEREFERENCE,
         NOD_VARIABLE_ACCESS,
         NOD_ASSIGN,
         NOD_POST_INCREMENT,
         NOD_PRE_INCREMENT,
+        NOD_SUBSCRIPT,
+        NOD_ARRAY_LITERAL,
+        NOD_INIT_ARRAY,
+        NOD_ADD_POINTER,
+        NOD_SUB_POINTER,
         /* not implemented yet */
         NOD_POST_DECREMENT,
         /* not implemented yet */
         NOD_PRE_DECREMENT,
     } node_type_t;
-    
+
     typedef enum {
         TYPE_NULL = 0,
         TYPE_VOID,
@@ -183,6 +188,7 @@
         TYPE_UNSIGNED_CHAR,
         __UNSIGNED_TYPE_END__,
         TYPE_POINTER,
+        TYPE_ARRAY,
     } base_type_t;
 
     typedef enum {
@@ -200,6 +206,7 @@
             bool is_signed;
             data_type_t* ptr_derived_type;
         };
+        size_t array_size;
     };
 
     typedef struct {
@@ -336,6 +343,16 @@
         data_type_t dst_type;
     } nod_type_cast_t;
 
+    typedef struct {
+        data_type_t type;
+        node_t* elems;
+    } nod_array_literal_t;
+
+    typedef struct {
+        node_t* elems;
+        var_info_t array_var;
+    } nod_array_init_t;
+
     struct node_t {
         node_type_t type;
         union {
@@ -356,6 +373,8 @@
             nod_function_call_t func_call_node;
             nod_static_init_t static_init_node;
             nod_type_cast_t type_cast_node;
+            nod_array_literal_t array_literal_node;
+            nod_array_init_t array_init_node;
         };
         /* used for type-annotating the AST */
         data_type_t d_type;
@@ -443,6 +462,10 @@ typedef enum {                  /* dst, op_1, op_2 */
     INST_ZERO_EXTEND_BQ,        /* dst, src, NULL */
     INST_ZERO_EXTEND_WL,        /* dst, src, NULL */
     INST_ZERO_EXTEND_WQ,        /* dst, src, NULL */
+    /* pointer-related instructions */
+    INST_GET_ADDRESS,           /* dst, src, NULL */
+    /* array instructions */
+    INST_ADD_POINTER,           /* dst, ptr, index */
  } ir_inst_t;
 
 typedef enum {
@@ -472,6 +495,7 @@ typedef enum {
     STK_OFFSET,
     STATIC_MEM,
     STATIC_MEM_LOCAL,
+    MEM_ADDRESS, /* always uses %rax */
 } operand_t;
 
 #define is_immediate(operand_type) (((operand_type) > ___IMMEDIATE_TYPE_START___) && ((operand_type) < ___LVALUE_TYPE_START___))

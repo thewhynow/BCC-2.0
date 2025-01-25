@@ -38,10 +38,28 @@ static void parse_error(const char* msg){
     exit(-1);
 }
 
+void data_t_dstr(void* _data){
+    data_type_t* data = _data;
+    if (((data_type_t*)_data)->base_type == TYPE_POINTER || ((data_type_t*)_data)->base_type == TYPE_ARRAY){
+        data_t_dstr(((data_type_t*)_data)->ptr_derived_type);
+        free(((data_type_t*)_data)->ptr_derived_type);
+    }
+}
+
+data_type_t* alloc_data_t(data_type_t type){
+    data_type_t* ptr = malloc(sizeof(data_type_t));
+    *ptr = type;
+    return ptr;
+}
+
 void symbol_dstr(void* _symbol){
     symbol_t* symbol = _symbol;
+
+    data_t_dstr(&symbol->data_type);
+
     if (symbol->symbol_type == SYM_FUNCTION)
-        free_array(symbol->args, symbol_dstr);
+        free_array(symbol->args, symbol_dstr); else
+
     return;       
 }
 
@@ -152,14 +170,13 @@ node_t parse_top_level(){
         symbol_t parse_declaration(data_type_t d_type);
 
         symbol_t symbol = parse_declaration(d_type);
+        pback_array(&global_scope->top_scope, &symbol);
 
         if (symbol.symbol_type == SYM_FUNCTION){
-            function_scope = alloc_array(sizeof(symbol_t*), 1);
-            pback_array(&function_scope, &global_scope->top_scope);
-            pback_array(&global_scope->top_scope, &symbol);
-            __scope_id = 1;
-
             if (curr_token.type == TOK_OPEN_BRACE){
+                function_scope = alloc_array(sizeof(symbol_t*), 1);
+                pback_array(&function_scope, &global_scope->top_scope);
+                __scope_id = 1;
                 /* parse block node code, but slightly modified */
                     advance_token();
 
@@ -263,6 +280,22 @@ node_t parse_term(){
             .unary_node.value = make_node(result)
         };
     }
+    else {
+        while (curr_token.type == TOK_OPEN_BRACKET){
+            advance_token();
+            
+            result = (node_t){
+                .type = NOD_SUBSCRIPT,
+                .binary_node.value_a = make_node(result),
+                .binary_node.value_b = make_node(parse_expr())
+            };
+
+            if (curr_token.type == TOK_CLOSE_BRACKET)
+                advance_token();
+            else
+                parse_error("expected ']'");
+        }
+    }
 
     while(true){
         switch(curr_token.type){
@@ -344,22 +377,32 @@ node_t parse_fac(){
                 };
             }
             else {
-                pback_array(&current_scope->top_scope, &symbol);
-                return (node_t){
-                    .type = NOD_ASSIGN,
-                    .assign_node = (nod_assign_t){
-                        .destination = make_node((node_t){
-                            .type = NOD_VARIABLE_ACCESS,
-                            .var_access_node = (nod_var_access_t){
-                                .var_info = (var_info_t){
-                                    .var_num = find_symbol(current_scope, symbol, NULL, NULL) - current_scope->top_scope,
-                                    .scope_id = current_scope->scope_id,
+                if (symbol.data_type.base_type == TYPE_ARRAY)
+                    return (node_t){
+                        .type = NOD_INIT_ARRAY,
+                        .array_init_node.array_var = (var_info_t){
+                            .var_num = find_symbol(current_scope, symbol, NULL, NULL) - current_scope->top_scope,
+                            .scope_id = current_scope->scope_id,
+                        },
+                        .array_init_node.elems = make_node(parse_expr())
+                    };
+
+                else
+                    return (node_t){
+                        .type = NOD_ASSIGN,
+                        .assign_node = (nod_assign_t){
+                            .destination = make_node((node_t){
+                                .type = NOD_VARIABLE_ACCESS,
+                                .var_access_node = (nod_var_access_t){
+                                    .var_info = (var_info_t){
+                                        .var_num = find_symbol(current_scope, symbol, NULL, NULL) - current_scope->top_scope,
+                                        .scope_id = current_scope->scope_id,
+                                    }
                                 }
-                            }
-                        }),
-                        .source = make_node(parse_expr())
-                    }
-                };
+                            }),
+                            .source = make_node(parse_expr())
+                        }
+                    };
             }
 
         }
@@ -517,20 +560,51 @@ node_t parse_fac(){
 
             case TOK_OPEN_PAREN: {
                 advance_token();
+                
+                data_type_t parse_anonymous_declaration(data_type_t d_type);
 
                 data_type_t cast_type = parse_type();
 
                 if (cast_type.base_type){
+                    cast_type = parse_anonymous_declaration(cast_type);
                     if (!cast_type.storage_class){
                         if (curr_token.type == TOK_CLOSE_PAREN){
                             advance_token();
-                            return (node_t){
-                                .type = NOD_TYPE_CAST,
-                                .type_cast_node = (nod_type_cast_t){
-                                    .dst_type = cast_type,
-                                    .src = make_node(parse_fac())
+                            /* compound literal */
+                            if (curr_token.type == TOK_OPEN_BRACE){
+                                if (cast_type.base_type == TYPE_ARRAY){
+                                    node_t parse_array_literal(data_type_t type);
+
+                                    node_t elems = parse_array_literal(cast_type);
+
+                                    data_t_dstr(&elems.array_literal_node.type);
+
+                                    advance_token();
+
+                                    if (elems.type == NOD_ARRAY_LITERAL){
+                                        node = (node_t){
+                                            .type = NOD_ARRAY_LITERAL,
+                                            .array_literal_node.elems = elems.array_literal_node.elems,
+                                            .array_literal_node.type = cast_type
+                                        };
+
+                                        return node;
+                                    }   
+                                    else
+                                        parse_error("can only define array variable with array literal");
                                 }
-                            };
+                                else
+                                    parse_error("only scalar initializers of array type are supported");
+                                
+                            }
+                            else
+                                return (node_t){
+                                    .type = NOD_TYPE_CAST,
+                                    .type_cast_node = (nod_type_cast_t){
+                                        .dst_type = cast_type,
+                                        .src = make_node(parse_fac())
+                                    }
+                                };
                         }
                         else
                             parse_error("expected ')' after typecast");
@@ -850,6 +924,22 @@ node_t parse_fac(){
                     parse_error("cannot use 'default' keyword outside of switch statement");
             }
 
+            case TOK_BITWISE_AND: {
+                advance_token();
+                return (node_t){
+                    .type = NOD_REFERENCE,
+                    .unary_node.value = make_node(parse_fac())
+                };
+            }
+
+            case TOK_MUL: {
+                advance_token();
+                return (node_t){
+                    .type = NOD_DEREFERENCE,
+                    .unary_node.value = make_node(parse_fac())
+                };
+            }
+
             default: {
                 parse_error("unexpected token");
             }
@@ -1132,8 +1222,8 @@ node_t parse_expr_level_14(){
                 advance_token();
                 result = (node_t){
                     .type = NOD_ASSIGN,
-                    .assign_node.source = make_node(result),
-                    .assign_node.destination = make_node(parse_expr_level_13())
+                    .assign_node.destination = make_node(result),
+                    .assign_node.source = make_node(parse_expr_level_13())
                 };
                 break;
             }
@@ -1297,6 +1387,9 @@ node_t parse_expr_level_15(){
 
 void parse_node_dstr(void* _node){
     node_t* node = _node;
+
+    data_t_dstr(&node->d_type);
+
     switch(node->type){
         case NOD_NULL:
             return;
@@ -1324,6 +1417,8 @@ void parse_node_dstr(void* _node){
         case NOD_LOGICAL_NOT: 
         case NOD_UNARY_SUB: 
         case NOD_BITWISE_NOT:
+        case NOD_REFERENCE:
+        case NOD_DEREFERENCE:
             parse_node_dstr(node->unary_node.value);
             free(node->unary_node.value);
             return;
@@ -1346,6 +1441,9 @@ void parse_node_dstr(void* _node){
         case NOD_GREATER_THAN:
         case NOD_LESS_THAN_OR_EQUAL:
         case NOD_GREATER_THAN_OR_EQUAL:
+        case NOD_ADD_POINTER:
+        case NOD_SUB_POINTER:
+        case NOD_SUBSCRIPT:
             parse_node_dstr(node->binary_node.value_a);
             parse_node_dstr(node->binary_node.value_b);
             free(node->binary_node.value_a);
@@ -1437,6 +1535,20 @@ void parse_node_dstr(void* _node){
         case NOD_TYPE_CAST: {
             parse_node_dstr(node->type_cast_node.src);
             free(node->type_cast_node.src);
+
+            data_t_dstr(&node->type_cast_node.dst_type);
+            return;
+        }
+
+        case NOD_ARRAY_LITERAL: {
+            free_array(node->array_literal_node.elems, parse_node_dstr);
+            return;
+        }
+
+        case NOD_INIT_ARRAY: {
+            parse_node_dstr(node->array_init_node.elems);
+            free(node->array_init_node.elems);
+
             return;
         }
     }
@@ -1453,6 +1565,49 @@ void* array_search(void* array, void* target, bool(*comparison_func)(void* val_a
     return NULL;
 }
 
+data_type_t parse_anonymous_declaration(data_type_t d_type){    
+
+        /* variable declaration */
+
+        if (curr_token.type == TOK_COMMA || curr_token.type == TOK_CLOSE_PAREN)
+            return d_type;
+
+        if (curr_token.type == TOK_OPEN_BRACKET) {
+            while (curr_token.type == TOK_OPEN_BRACKET){
+                advance_token();
+                if (curr_token.type == TOK_INTEGER){
+                    data_type_t derived_type = d_type;
+                    
+                    d_type = (data_type_t){
+                        .base_type = TYPE_ARRAY,
+                        .array_size = curr_token.literals.uint,
+                        .ptr_derived_type = malloc(sizeof(data_type_t))
+                    };
+
+                    *d_type.ptr_derived_type = derived_type;
+
+                    advance_token();
+
+                    if (curr_token.type == TOK_CLOSE_BRACKET)
+                        advance_token();
+                    else
+                        parse_error("expected ']'");
+                }
+                else
+                    parse_error("can only use signed integer constant for array subscript");
+            }
+
+            return d_type;
+        }
+        else
+            parse_error("expected ',' or ')' after anonymous declaration");
+        
+    MARK_UNREACHABLE_CODE;
+}
+
+/*
+* also handles parsing 
+*/
 symbol_t parse_declaration(data_type_t d_type){
     if (curr_token.type == TOK_IDENTIFIER){
         char* name = curr_token.identifier;
@@ -1473,7 +1628,42 @@ symbol_t parse_declaration(data_type_t d_type){
 
             /* variable declaration */
             case TOK_SEMICOLON:
+            case TOK_COMMA:
+            case TOK_CLOSE_PAREN:
             case TOK_ASSIGN: {
+                return (symbol_t){
+                    .name = name,
+                    .init = false,
+                    .symbol_type = SYM_VARIABLE,
+                    .data_type = d_type
+                };
+            }
+
+            case TOK_OPEN_BRACKET: {
+                while (curr_token.type == TOK_OPEN_BRACKET){
+                    advance_token();
+                    if (curr_token.type == TOK_INTEGER){
+                        data_type_t derived_type = d_type;
+                        
+                        d_type = (data_type_t){
+                            .base_type = TYPE_ARRAY,
+                            .array_size = curr_token.literals.uint,
+                            .ptr_derived_type = malloc(sizeof(data_type_t))
+                        };
+
+                        *d_type.ptr_derived_type = derived_type;
+
+                        advance_token();
+
+                        if (curr_token.type == TOK_CLOSE_BRACKET)
+                            advance_token();
+                        else
+                            parse_error("expected ']'");
+                    }
+                    else
+                        parse_error("can only use signed integer constant for array subscript");
+                }
+
                 return (symbol_t){
                     .name = name,
                     .init = false,
@@ -1581,12 +1771,16 @@ data_type_t parse_type(){
             }
 
             case TOK_MUL: {
-                advance_token();
-                data_type_t ptr_base_type = result; 
-                
-                result.base_type = TYPE_POINTER;    
-                result.ptr_derived_type = malloc(sizeof(data_type_t));
-                *result.ptr_derived_type = ptr_base_type;
+                if (result.base_type){
+                    advance_token();
+                    data_type_t ptr_base_type = result; 
+                    
+                    result.base_type = TYPE_POINTER;    
+                    result.ptr_derived_type = malloc(sizeof(data_type_t));
+                    *result.ptr_derived_type = ptr_base_type;
+                }
+                else
+                    return (data_type_t){0};
 
                 break;
             }
@@ -1615,18 +1809,8 @@ symbol_t* parse_function_args(){
         
         for (data_type_t d_type = parse_type(); d_type.base_type; d_type = parse_type()){
             if (d_type.base_type){
-                if (curr_token.type == TOK_IDENTIFIER){
-                    var = (symbol_t){
-                        .data_type = d_type,
-                        .symbol_type = SYM_VARIABLE,
-                        .name = curr_token.identifier,
-                    };
-                    pback_array(&args, &var);
-
-                    advance_token();
-                }
-                else
-                    parse_error("expected identifier");
+                var = parse_declaration(d_type);
+                pback_array(&args, &var);
             }
             else
                 parse_error("expected type");
@@ -1649,3 +1833,43 @@ symbol_t* parse_function_args(){
 
     return args;
 }   
+
+node_t parse_array_literal(data_type_t type){
+    data_type_t clone_data_t(data_type_t src);
+    
+    node_t node;
+
+    node_t* elems = alloc_array(sizeof(node_t), 1);
+
+    if (curr_token.type == TOK_OPEN_BRACE){
+        advance_token();
+        while (curr_token.type != TOK_CLOSE_BRACE){
+            if (curr_token.type == TOK_OPEN_BRACE){
+                node = parse_array_literal(*type.ptr_derived_type);
+
+                node.array_literal_node.type = clone_data_t(*type.ptr_derived_type);
+
+                pback_array(&elems, &node);
+
+                advance_token();
+                if (curr_token.type == TOK_COMMA)
+                    advance_token();
+            }
+            else {
+                node = parse_expr();
+                pback_array(&elems, &node);
+
+                if (curr_token.type == TOK_COMMA)
+                    advance_token();
+            }
+        }
+    }
+    else
+        parse_error("expected '}'");
+    
+    return (node_t){
+        .type = NOD_ARRAY_LITERAL,
+        .array_literal_node.elems = elems,
+        .array_literal_node.type = clone_data_t(*type.ptr_derived_type)
+    };
+}
