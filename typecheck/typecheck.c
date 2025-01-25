@@ -39,15 +39,25 @@ bool type_comp(data_type_t* type_1, data_type_t* type_2, bool check_storage_clas
         return (type_1)->base_type == (type_2)->base_type && (!(check_storage_class) || (type_1)->storage_class == (type_2)->storage_class);
 }
 
-#define is_constant(node_type)          \
-    ((node_type == NOD_INTEGER)      || \
-    (node_type == NOD_LONG)          || \
-    (node_type == NOD_SHORT)         || \
-    (node_type == NOD_CHAR)          || \
-    (node_type == NOD_UINTEGER)      || \
-    (node_type == NOD_ULONG)         || \
-    (node_type == NOD_USHORT)        || \
-    (node_type == NOD_UCHAR))
+bool is_constant(node_t* node){
+    if (node->type == NOD_INTEGER  ||
+        node->type == NOD_LONG     ||
+        node->type == NOD_SHORT    ||
+        node->type == NOD_CHAR     ||
+        node->type == NOD_UINTEGER ||
+        node->type == NOD_ULONG    ||
+        node->type == NOD_USHORT   ||
+        node->type == NOD_UCHAR) 
+        return true;               else
+    if (node->type == NOD_ARRAY_LITERAL){
+        for (size_t i = 0; i < get_count_array(node->array_literal_node.elems); ++i)
+            if (!is_constant(node->array_literal_node.elems + i))
+                return false;
+        return true;
+    }
+    else
+        return false;
+}
 
 data_type_t clone_data_t(data_type_t src){
     if (src.base_type == TYPE_ARRAY || src.base_type == TYPE_POINTER){
@@ -72,6 +82,27 @@ data_type_t clone_data_t(data_type_t src){
         (p_1) = (p_2);             \
         (p_2) = intermediate;      \
     }
+
+void array_pointer_decay(node_t* node_1, data_type_t* d_type){
+    
+    node_t* make_node(node_t node);
+    
+    if (node_1->d_type.base_type == TYPE_ARRAY && (d_type->base_type == TYPE_POINTER || d_type->base_type == TYPE_UNSIGNED_LONG)){
+        void data_t_dstr(void* data);
+        data_t_dstr(&node_1->d_type);
+        
+        *node_1 = (node_t){
+            .type = NOD_REFERENCE,
+            .unary_node.value = make_node(*node_1),
+        };
+
+        void typecheck_node(node_t* node);
+
+
+
+        typecheck_node(node_1);
+    }
+}
 
 void typecheck_node(node_t* node){
     static symbol_t* curr_func;
@@ -124,6 +155,8 @@ void typecheck_node(node_t* node){
         case NOD_RETURN: {
             typecheck_node(node->return_node.value);
 
+            array_pointer_decay(node->return_node.value, &curr_func->data_type);
+
             if (type_comp(&curr_func->data_type, &node->return_node.value->d_type, false, false, false))
                 node->d_type = clone_data_t(node->return_node.value->d_type);
             else
@@ -146,10 +179,6 @@ void typecheck_node(node_t* node){
 
             curr_func = func;
             curr_scope = node->func_node.function_scope;
-
-            for (size_t i = 0; i < get_count_array(func->args); ++i)
-                if (func->args[i].data_type.base_type == TYPE_ARRAY)
-                    func->args[i].data_type.base_type = TYPE_POINTER;
             
             node_t* block = make_node((node_t){.block_node = node->func_node.body, .type = NOD_BLOCK});
             typecheck_node(block);
@@ -167,10 +196,11 @@ void typecheck_node(node_t* node){
                 .symbol_type = SYM_FUNCTION
             }, NULL, NULL);
 
-
             if (func){
                 for (size_t i = 0; i < get_count_array(node->func_call_node.args); ++i){
                     typecheck_node(node->func_call_node.args + i);
+
+                    array_pointer_decay(node->func_call_node.args + i, &func->args[i].data_type);
 
                     if (!type_comp(&node->func_call_node.args[i].d_type, &func->args[i].data_type, false, true, false))
                         typecheck_error("mismatching function argument types");
@@ -224,6 +254,9 @@ void typecheck_node(node_t* node){
             typecheck_node(node->binary_node.value_a);
             typecheck_node(node->binary_node.value_b);
 
+            array_pointer_decay(node->binary_node.value_a, &node->binary_node.value_b->d_type);
+            array_pointer_decay(node->binary_node.value_b, &node->binary_node.value_a->d_type);
+
             /* pointer addition */
             if (node->type == NOD_BINARY_ADD && (node->binary_node.value_a->d_type.base_type == TYPE_POINTER || node->binary_node.value_b->d_type.base_type == TYPE_POINTER)){
                 
@@ -237,13 +270,23 @@ void typecheck_node(node_t* node){
             } else
             if (node->type == NOD_BINARY_SUB && (node->binary_node.value_a->d_type.base_type == TYPE_POINTER || node->binary_node.value_b->d_type.base_type == TYPE_POINTER)){
                 
-                if (node->binary_node.value_a->d_type.base_type == TYPE_UNSIGNED_LONG && node->binary_node.value_b->d_type.base_type == TYPE_POINTER){
-                    swap_pointer(node->binary_node.value_a, node->binary_node.value_b);
+                
+                if (node->binary_node.value_a->d_type.base_type == TYPE_POINTER && node->binary_node.value_b->d_type.base_type == TYPE_POINTER){
+                    node->type = NOD_SUB_POINTER_POINTER;
+                    node->d_type = (data_type_t){
+                        .base_type = TYPE_UNSIGNED_LONG,
+                        .is_signed = false,
+                        .storage_class = STORAGE_NULL,
+                    };
                 }
+                else {
+                    if (node->binary_node.value_a->d_type.base_type == TYPE_UNSIGNED_LONG && node->binary_node.value_b->d_type.base_type == TYPE_POINTER){
+                        swap_pointer(node->binary_node.value_a, node->binary_node.value_b);
+                    }
 
-                node->d_type = clone_data_t(node->binary_node.value_a->d_type);
-                node->type = NOD_SUB_POINTER;
-    
+                    node->d_type = clone_data_t(node->binary_node.value_a->d_type);
+                    node->type = NOD_SUB_POINTER;
+                }
             }
             else {
                 if (type_comp(&node->binary_node.value_a->d_type, &node->binary_node.value_b->d_type, false, true, true)){
@@ -285,7 +328,7 @@ void typecheck_node(node_t* node){
 
             if (!type_comp(&node->conditional_node.true_block->d_type, &node->conditional_node.false_block->d_type, false, false, true))
                 typecheck_error("cannot return two different types in ternary expression");
-            
+
             node->d_type = clone_data_t(node->conditional_node.true_block->d_type);
 
             return;
@@ -294,10 +337,13 @@ void typecheck_node(node_t* node){
         case NOD_STATIC_INIT: {
             typecheck_node(node->static_init_node.value);
 
+            if (node->static_init_node.value->type == NOD_ARRAY_LITERAL)
+                node->type = NOD_STATIC_ARRAY_INIT;
+
             if (!type_comp(&node->static_init_node.value->d_type, &node->static_init_node.sym_info.data_type, false, false, false))
                 typecheck_error("cannot assign type B to type A");
 
-            if (!is_constant(node->static_init_node.value->type))
+            if (!is_constant(node->static_init_node.value))
                 typecheck_error("cannot assign non-constant expression in static variable initializer");
 
             node->d_type = (data_type_t){0};
@@ -324,6 +370,8 @@ void typecheck_node(node_t* node){
         case NOD_ASSIGN: {
             typecheck_node(node->assign_node.source);
             typecheck_node(node->assign_node.destination);
+
+            array_pointer_decay(node->assign_node.source, &node->assign_node.destination->d_type);
 
             if (type_comp(&node->assign_node.source->d_type, &node->assign_node.destination->d_type, false, true, false))
                 node->d_type = clone_data_t(node->assign_node.source->d_type);
@@ -512,6 +560,7 @@ void typecheck_node(node_t* node){
         /* these are already typechecked, as they are implemented by the typechecker themselves */
         case NOD_ADD_POINTER:
         case NOD_SUB_POINTER:
+        case NOD_STATIC_ARRAY_INIT:
             return;
 
         default: {

@@ -529,11 +529,36 @@ token_t* lex(const char* fpath){
                 }
 
                 case '\'': {
-                    token = (token_t){
-                        .type = TOK_INTEGER,
-                        .literals.uint = line_str[++i],
-                        .line = line_count
-                    };
+                    ++i;
+                    token.type = TOK_CHAR;
+                    token.line = line_count;
+
+                    if (line_str[i] == '\\'){
+                        switch(line_str[++i]){
+                            case '0':
+                                token.literals.uchar = '\0';
+                                break;
+                            case '\\':
+                                token.literals.uchar = '\\';
+                                break;
+                            case 'n':
+                                token.literals.uchar = '\n';
+                                break;
+                            case '\'':
+                                token.literals.uchar = '\'';
+                                break;
+                            case '\"':
+                                token.literals.uchar = '\"';
+                                break;
+                            default:
+                                fprintf(stderr, "%s.%lu: unrecognized escape sequence\n", fpath, line_count);
+                                exit(-1);
+                        }
+                    }
+                    else {
+                        token.literals.uchar = line_str[i];
+                    }
+
                     pback_array(&tok_vec, &token);
                     ++i;
                     break;

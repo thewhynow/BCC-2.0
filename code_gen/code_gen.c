@@ -102,7 +102,7 @@ const char* codegen_val(ir_operand_t val, size_t size){
             snprintf(str_buff, 4096, "$%lu", val.immediate);
             return str_buff;
         case STATIC_MEM:
-            snprintf(str_buff, 4096, "%s(%%rip)", val.identifier);
+            snprintf(str_buff, 4096, ASM_SYMBOL_PREFIX "%s(%%rip)", val.identifier);
             return str_buff;
         case STATIC_MEM_LOCAL:
             snprintf(str_buff, 4096, ASM_SYMBOL_PREFIX ".%lu_%s_%s(%%rip)", func_num, func_name, val.identifier);
@@ -566,7 +566,7 @@ void codegen_node(ir_node_t node){
             ASM_SYMBOL_PREFIX "%s:\n"
             ".zero %lu\n"
             ".text\n",
-            node.op_2.label_id, node.dst.identifier, node.op_2.label_id);
+            (node.op_2.label_id < 16 ? node.op_2.label_id : 16), node.dst.identifier, node.op_2.label_id);
             return;
         }
 
@@ -590,7 +590,7 @@ void codegen_node(ir_node_t node){
             ASM_SYMBOL_PREFIX "%s:\n"
             ".zero %lu\n"
             ".text\n",
-            node.dst.identifier, node.op_2.label_id, node.dst.identifier, node.op_2.label_id);
+            node.dst.identifier, (node.op_2.label_id < 16 ? node.op_2.label_id : 16), node.dst.identifier, node.op_2.label_id);
             return;
         }
 
@@ -612,37 +612,37 @@ void codegen_node(ir_node_t node){
             ASM_SYMBOL_PREFIX ".%lu_%s_%s:\n"
             ".zero %lu\n"
             ".text\n",
-            node.op_2.label_id, func_num, func_name, node.dst.identifier, node.op_2.label_id);
+            (node.op_2.label_id < 16 ? node.op_2.label_id : 16), func_num, func_name, node.dst.identifier, node.op_2.label_id);
             return;
         }
 
         case INST_SAVE_CALLER_REGS: {
-            // fprintf(asm_file,
-            // "pushq %%rdi\n"
-            // "pushq %%rsi\n"
-            // "pushq %%rdx\n"
-            // "pushq %%rcx\n"
-            // "pushq %%r8\n"
-            // "pushq %%r9\n"
-            // /* dont save rax as it is used for function returns */
-            // "pushq %%r10\n"
-            // "pushq %%r11\n"
-            // /* ensure 16-byte alignment */
-            // "subq $8, %%rsp\n");
+            fprintf(asm_file,
+            "pushq %%rdi\n"
+            "pushq %%rsi\n"
+            "pushq %%rdx\n"
+            "pushq %%rcx\n"
+            "pushq %%r8\n"
+            "pushq %%r9\n"
+            /* dont save rax as it is used for function returns */
+            "pushq %%r10\n"
+            "pushq %%r11\n"
+            /* ensure 16-byte alignment */
+            "subq $8, %%rsp\n");
             return;
         }
 
         case INST_LOAD_CALLER_REGS: {
-            // fprintf(asm_file,
-            // "addq $8, %%rsp\n"
-            // "pop %%r11\n"
-            // "pop %%r10\n"
-            // "pop %%r9\n"
-            // "pop %%r8\n"
-            // "pop %%rcx\n"
-            // "pop %%rdx\n"
-            // "pop %%rsi\n"
-            // "pop %%rdi\n");
+            fprintf(asm_file,
+            "addq $8, %%rsp\n"
+            "pop %%r11\n"
+            "pop %%r10\n"
+            "pop %%r9\n"
+            "pop %%r8\n"
+            "pop %%rcx\n"
+            "pop %%rdx\n"
+            "pop %%rsi\n"
+            "pop %%rdi\n");
             return;
         }
 
@@ -893,7 +893,7 @@ void codegen_node(ir_node_t node){
             if (is_immediate(node.op_2.type)){
                 str = strdup(codegen_val((ir_operand_t){.type = REG_AX}, node.size));
 
-                const char* other_str = strdup(codegen_val((ir_operand_t){.type = REG_R10}, node.size));
+                char* other_str = strdup(codegen_val((ir_operand_t){.type = REG_R10}, node.size));
                 
                 fprintf(asm_file,
                 "cdq\n"
@@ -901,17 +901,23 @@ void codegen_node(ir_node_t node){
                 "div%1$c %3$s\n"
                 "mov%1$c %4$s, %5$s\n",
                 asm_inst_prefix(node.size), node.op_2.immediate, other_str, str, codegen_val(node.dst, node.size));
+
+                free(other_str);
+                free(str);
             }
             else {
                 str = strdup(codegen_val(node.op_2, node.size));
 
-                const char* other_str = strdup(codegen_val((ir_operand_t){.type = REG_AX}, node.size));
+                char* other_str = strdup(codegen_val((ir_operand_t){.type = REG_AX}, node.size));
 
                 fprintf(asm_file,
                 "cdq\n"
                 "div%1$c %2$s\n"
                 "mov%1$c %3$s, %4$s\n",
                 asm_inst_prefix(node.size), str, other_str, codegen_val(node.dst, node.size));
+
+                free(other_str);
+                free(str);
             }
             return;
         }
@@ -952,26 +958,31 @@ void codegen_node(ir_node_t node){
             
             if (node.dst.type > ___LVALUE_TYPE_START___){
                 fprintf(asm_file,
-                "lea %s, %%rax\n"
+                "leaq %s, %%rax\n"
                 "movq %%rax, %s\n",
                 str, codegen_val(node.dst, node.size));
             }
             else
                 fprintf(asm_file,
-                "lea %s, %s\n",
+                "leaq %s, %s\n",
                 str, codegen_val(node.dst, node.size));
 
             free(str);
             return;
         }
 
+        case INST_SUB_POINTER:
         case INST_ADD_POINTER: {
             codegen_mov(node.op_1, (ir_operand_t){.type = REG_AX}, 8);
             codegen_mov(node.op_2, (ir_operand_t){.type = REG_DX}, 8);
 
+            if (node.instruction == INST_SUB_POINTER)
+                fprintf(asm_file,
+                    "negq %%rdx\n");
+
             if (node.size == 1 || node.size == 2 || node.size == 4 || node.size == 8)
                 fprintf(asm_file,
-                "lea (%%rax, %%rdx, %lu), %%rax\n"
+                "leaq (%%rax, %%rdx, %lu), %%rax\n"
                 "movq %%rax, %s\n",
                 node.size, codegen_val(node.dst, 8));
             else {
@@ -984,10 +995,64 @@ void codegen_node(ir_node_t node){
                 });
 
                 fprintf(asm_file,
-                "lea (%%rax, %%r10, 1), %%rax\n"
+                "leaq (%%rax, %%r10, 1), %%rax\n"
                 "movq %%rax, %s\n",
                 codegen_val(node.dst, 8));
             }
+
+            return;
+        }
+
+        case INST_STATIC_ARRAY:
+        case INST_STATIC_ARRAY_PUBLIC: {
+            if (node.instruction == INST_STATIC_ARRAY_PUBLIC)
+                fprintf(asm_file,
+                ".globl " ASM_SYMBOL_PREFIX "%s\n",
+                node.dst.identifier);
+
+            fprintf(asm_file,
+            ".data\n"
+            ASM_SYMBOL_PREFIX "%s:\n",
+            node.dst.identifier);
+
+            if (node.op_1.label_id < 16)
+                fprintf(asm_file, 
+                ".balign %lu\n", 
+                node.op_2.label_id);
+            else
+                fprintf(asm_file, 
+                ".balign 16\n");
+
+            return;
+        }
+
+        case INST_STATIC_ELEM: {
+            fprintf(asm_file,
+            ".%s %lu\n",
+            asm_static_directive(node.op_2.label_id), node.op_1.label_id);
+
+            return;
+        }
+
+        case INST_TEXT_SECTION: {
+            fprintf(asm_file,
+            ".text\n");
+            return;
+        }
+
+        case INST_STATIC_ARRAY_LOCAL: {
+            fprintf(asm_file,
+            ".data\n"
+            ASM_SYMBOL_PREFIX ".%lu_%s_%s:\n",
+            func_num, func_name, node.dst.identifier);
+
+            if (node.op_1.label_id < 16)
+                fprintf(asm_file, 
+                ".balign %lu\n", 
+                node.op_2.label_id);
+            else
+                fprintf(asm_file, 
+                ".balign 16\n");
 
             return;
         }

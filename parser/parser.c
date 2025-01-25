@@ -170,9 +170,15 @@ node_t parse_top_level(){
         symbol_t parse_declaration(data_type_t d_type);
 
         symbol_t symbol = parse_declaration(d_type);
-        pback_array(&global_scope->top_scope, &symbol);
+
 
         if (symbol.symbol_type == SYM_FUNCTION){
+            pback_array(&global_scope->top_scope, &symbol);
+
+            for (size_t i = 0; i < get_count_array(symbol.args); ++i)
+                if (symbol.args[i].data_type.base_type == TYPE_ARRAY)
+                    symbol.args[i].data_type.base_type = TYPE_POINTER;
+
             if (curr_token.type == TOK_OPEN_BRACE){
                 function_scope = alloc_array(sizeof(symbol_t*), 1);
                 pback_array(&function_scope, &global_scope->top_scope);
@@ -272,30 +278,6 @@ node_t parse_expr(){
 node_t parse_term(){
     node_t parse_fac();
     node_t result = parse_fac();
-
-    if (curr_token.type == TOK_INCREMENT){
-        advance_token();
-        result = (node_t){
-            .type = NOD_POST_INCREMENT,
-            .unary_node.value = make_node(result)
-        };
-    }
-    else {
-        while (curr_token.type == TOK_OPEN_BRACKET){
-            advance_token();
-            
-            result = (node_t){
-                .type = NOD_SUBSCRIPT,
-                .binary_node.value_a = make_node(result),
-                .binary_node.value_b = make_node(parse_expr())
-            };
-
-            if (curr_token.type == TOK_CLOSE_BRACKET)
-                advance_token();
-            else
-                parse_error("expected ']'");
-        }
-    }
 
     while(true){
         switch(curr_token.type){
@@ -410,77 +392,95 @@ node_t parse_fac(){
             parse_error("expected '=' or ';' after variable declaration");
     }
     else {
+        node_t result;
         switch(curr_token.type){
+
             case TOK_INTEGER: {
                 unsigned int val = curr_token.literals.uint;
                 advance_token();
-                return (node_t){
+                result = (node_t){
                     .type = NOD_INTEGER,
                     .const_node.int_literal = val,
                 };
+
+                break;
             }
 
             case TOK_LONG: {
                 unsigned long val = curr_token.literals.ulong;
                 advance_token();
-                return (node_t){
+                result = (node_t){
                     .type = NOD_LONG,
                     .const_node.long_literal = val,
                 };
+
+                break;
             }
 
             case TOK_SHORT: {
                 unsigned short val = curr_token.literals.ushort;
                 advance_token();
-                return (node_t){
+                result = (node_t){
                     .type = NOD_SHORT,
                     .const_node.short_literal = val,
                 };
+
+                break;
             }
 
             case TOK_CHAR: {
                 unsigned char val = curr_token.literals.uchar;
                 advance_token();
-                return (node_t){
+                result = (node_t){
                     .type = NOD_CHAR,
                     .const_node.char_literal = val,
                 };
+
+                break;
             }
 
             case TOK_UINTEGER: {
                 unsigned int val = curr_token.literals.uint;
                 advance_token();
-                return (node_t){
+                result = (node_t){
                     .type = NOD_UINTEGER,
                     .const_node.int_literal = val
                 };
+
+                break;
             }
 
             case TOK_ULONG: {
                 unsigned int val = curr_token.literals.ulong;
                 advance_token();
-                return (node_t){
+                result = (node_t){
                     .type = NOD_ULONG,
                     .const_node.long_literal = val
                 };
+
+                break;
             }
 
             case TOK_USHORT: {
                 unsigned int val = curr_token.literals.ushort;
                 advance_token();
-                return (node_t){
+                result = (node_t){
                     .type = NOD_USHORT,
                     .const_node.short_literal = val
                 };
+
+                break;
             }
 
             case TOK_UCHAR: {
                 unsigned int val = curr_token.literals.uchar;
                 advance_token();
-                return (node_t){
+                result = (node_t){
                     .type = NOD_UCHAR,
                     .const_node.char_literal = val
                 };
+
+                break;
             }
 
             case TOK_OPEN_BRACE: {
@@ -520,42 +520,50 @@ node_t parse_fac(){
 
             case TOK_SUB: {
                 advance_token();
-                return (node_t){
+                result = (node_t){
                     .type = NOD_UNARY_SUB,
                     .unary_node = (nod_unary_t){
                         .value = make_node(parse_fac())
                     }
                 };
+
+                break;
             }
 
             case TOK_BITWISE_NOT: {
                 advance_token();
-                return (node_t){
+                result = (node_t){
                     .type = NOD_BITWISE_NOT,
                     .unary_node = (nod_unary_t){
                         .value = make_node(parse_fac())
                     }
                 };
+
+                break;
             }
 
             case TOK_LOGICAL_NOT: {
                 advance_token();
-                return (node_t){
+                result = (node_t){
                     .type = NOD_LOGICAL_NOT,
                     .unary_node = (nod_unary_t){
                         .value = make_node(parse_fac())
                     }
                 };
+
+                break;
             }
 
             case TOK_INCREMENT: {
                 advance_token();
-                return (node_t){
+                result = (node_t){
                     .type = NOD_PRE_INCREMENT,
                     .unary_node = (nod_unary_t){
                         .value = make_node(parse_fac())
                     }
                 };
+
+                break;
             }
 
             case TOK_OPEN_PAREN: {
@@ -582,13 +590,11 @@ node_t parse_fac(){
                                     advance_token();
 
                                     if (elems.type == NOD_ARRAY_LITERAL){
-                                        node = (node_t){
+                                        return (node_t){
                                             .type = NOD_ARRAY_LITERAL,
                                             .array_literal_node.elems = elems.array_literal_node.elems,
                                             .array_literal_node.type = cast_type
-                                        };
-
-                                        return node;
+                                        };;
                                     }   
                                     else
                                         parse_error("can only define array variable with array literal");
@@ -597,14 +603,16 @@ node_t parse_fac(){
                                     parse_error("only scalar initializers of array type are supported");
                                 
                             }
-                            else
-                                return (node_t){
+                            else {
+                                result = (node_t){
                                     .type = NOD_TYPE_CAST,
                                     .type_cast_node = (nod_type_cast_t){
                                         .dst_type = cast_type,
                                         .src = make_node(parse_fac())
                                     }
                                 };
+                                break;
+                            }
                         }
                         else
                             parse_error("expected ')' after typecast");
@@ -647,7 +655,7 @@ node_t parse_fac(){
                     }
                     advance_token();
 
-                    return (node_t){
+                    result = (node_t){
                         .type = NOD_FUNC_CALL,
                         .func_call_node = (nod_function_call_t){
                             .args = func_args,
@@ -655,21 +663,23 @@ node_t parse_fac(){
                             .storage_class = d_type.storage_class
                         }
                     };
+
+                    break;
                 }
                 else {
                     symbol = find_symbol(current_scope, ((symbol_t){.name = identifier, .symbol_type = SYM_VARIABLE}), &this_scope_id, &this_var_num);
                     if (symbol){
-                        return (node_t){
+                        result = (node_t){
                             .type = NOD_VARIABLE_ACCESS,
                             .var_access_node.var_info.var_num = this_var_num,
                             .var_access_node.var_info.scope_id = this_scope_id,
                         };
+                        break;
                     }
                     else
                         parse_error("attempt to use non-existing variable");
                 }
 
-                
             }
 
             case KEYW_return: {
@@ -926,26 +936,55 @@ node_t parse_fac(){
 
             case TOK_BITWISE_AND: {
                 advance_token();
-                return (node_t){
+                result = (node_t){
                     .type = NOD_REFERENCE,
                     .unary_node.value = make_node(parse_fac())
                 };
+
+                break;
             }
 
             case TOK_MUL: {
                 advance_token();
-                return (node_t){
+                result = (node_t){
                     .type = NOD_DEREFERENCE,
                     .unary_node.value = make_node(parse_fac())
                 };
+
+                break;
             }
 
             default: {
                 parse_error("unexpected token");
             }
         }
-    }
 
+        if (curr_token.type == TOK_INCREMENT){
+            advance_token();
+            result = (node_t){
+                .type = NOD_POST_INCREMENT,
+                .unary_node.value = make_node(result)
+            };
+        }
+        else {
+            while (curr_token.type == TOK_OPEN_BRACKET){
+                advance_token();
+                
+                result = (node_t){
+                    .type = NOD_SUBSCRIPT,
+                    .binary_node.value_a = make_node(result),
+                    .binary_node.value_b = make_node(parse_expr())
+                };
+
+                if (curr_token.type == TOK_CLOSE_BRACKET)
+                    advance_token();
+                else
+                    parse_error("expected ']'");
+            }
+        }
+
+        return result;
+    }
     MARK_UNREACHABLE_CODE;
 }
 
@@ -1444,6 +1483,7 @@ void parse_node_dstr(void* _node){
         case NOD_ADD_POINTER:
         case NOD_SUB_POINTER:
         case NOD_SUBSCRIPT:
+        case NOD_SUB_POINTER_POINTER:
             parse_node_dstr(node->binary_node.value_a);
             parse_node_dstr(node->binary_node.value_b);
             free(node->binary_node.value_a);
@@ -1526,6 +1566,7 @@ void parse_node_dstr(void* _node){
         case NOD_DEFAULT_CASE:
             return;
 
+        case NOD_STATIC_ARRAY_INIT:
         case NOD_STATIC_INIT: {
             parse_node_dstr(node->static_init_node.value);
             free(node->static_init_node.value);
@@ -1542,6 +1583,7 @@ void parse_node_dstr(void* _node){
 
         case NOD_ARRAY_LITERAL: {
             free_array(node->array_literal_node.elems, parse_node_dstr);
+            data_t_dstr(&node->array_literal_node.type);
             return;
         }
 

@@ -92,8 +92,7 @@ static void ir_gen_func(nod_function_t node){
 
     {
         ir_operand_t variable;
-        size_t var_amount = get_count_array(function_scope[node.body.scope_id]);
-        for (; i < var_amount; ++i){
+        for (; i < get_count_array(function_scope[node.body.scope_id]); ++i){
             if (function_scope[node.body.scope_id][i].data_type.storage_class == STORAGE_STATIC){
                 variable = (ir_operand_t){
                     .type = STATIC_MEM_LOCAL,
@@ -1090,6 +1089,7 @@ static void ir_gen_node(node_t node){
         }
 
         case NOD_STATIC_INIT: {
+
             ir_gen_node(*node.static_init_node.value);
 
             ir_node = (ir_node_t){
@@ -1281,6 +1281,25 @@ static void ir_gen_node(node_t node){
             return;
         }
 
+        case NOD_SUB_POINTER: {
+            ir_gen_node(*node.binary_node.value_a);
+            ir_operand_t ptr = value;
+            ir_gen_node(*node.binary_node.value_b);
+            
+            ir_node = (ir_node_t){
+                .instruction = INST_SUB_POINTER,
+                .dst = var_gen(8),
+                .op_1 = ptr,
+                .op_2 = value,
+                .size = get_type_size(*node.binary_node.value_a->d_type.ptr_derived_type)
+            };
+            pback_array(&ir_code, &ir_node);
+
+            value = ir_node.dst;
+
+            return;
+        }
+
         case NOD_INIT_ARRAY: {
             data_type_t base_type = node.array_init_node.elems->d_type;
 
@@ -1295,6 +1314,83 @@ static void ir_gen_node(node_t node){
         }
 
         case NOD_ARRAY_LITERAL: {
+            ir_operand_t array_start = var_gen(get_type_size(node.d_type));
+
+            data_type_t base_type = node.array_literal_node.type;
+
+            while (base_type.base_type == TYPE_ARRAY)
+                base_type = *base_type.ptr_derived_type;
+
+            size_t count = 0;
+
+            void ir_gen_init_array(node_t* array_elems, ir_operand_t array_start, size_t* count, size_t base_type_size);
+
+            ir_gen_init_array(node.array_literal_node.elems, array_start, &count, get_type_size(base_type));
+
+            value = array_start;
+
+            return;
+        }
+
+        case NOD_STATIC_ARRAY_INIT: {
+        
+            void ir_gen_static_array(node_t* array_elems, size_t base_type_size);
+
+            data_type_t base_type = node.static_init_node.value->array_literal_node.type;
+
+            while (base_type.base_type == TYPE_ARRAY)
+                base_type = *base_type.ptr_derived_type;
+            
+            ir_node = (ir_node_t){
+                .dst.identifier = node.static_init_node.sym_info.name,
+                .op_1.label_id = get_type_size(node.static_init_node.value->array_literal_node.type),
+                .op_2.label_id = get_type_size(base_type)
+            };
+
+            if (node.static_init_node.global){
+                if (node.static_init_node.sym_info.data_type.storage_class == STORAGE_STATIC){
+                    ir_node.instruction = INST_STATIC_ARRAY_PUBLIC;
+                }
+                else {
+                    ir_node.instruction = INST_STATIC_ARRAY;
+                }
+            }
+            else {
+                if (node.static_init_node.sym_info.data_type.storage_class == STORAGE_STATIC){
+                    ir_node.instruction = INST_STATIC_ARRAY_LOCAL;
+                }
+            }
+
+            pback_array(&ir_code, &ir_node);
+
+
+            ir_gen_static_array(node.static_init_node.value->array_literal_node.elems, get_type_size(base_type));
+
+            ir_node = (ir_node_t){
+                .instruction = INST_TEXT_SECTION
+            };
+            pback_array(&ir_code, &ir_node);
+
+            return;
+        }
+
+        case NOD_SUB_POINTER_POINTER: {
+            ir_gen_binary_op(INST_SUB, node.binary_node.value_a, node.binary_node.value_b);
+
+            ir_node = (ir_node_t){
+                .instruction = INST_UDIV,
+                .op_1 = value,
+                .op_2 = (ir_operand_t){
+                    .type = IMM_U32,
+                    .immediate = get_type_size(*node.binary_node.value_a->d_type.ptr_derived_type)
+                },
+                .dst = var_gen(INST_TYPE_QUADWORD),
+                .size = INST_TYPE_QUADWORD
+            };
+            pback_array(&ir_code, &ir_node);
+
+            value = ir_node.dst;
+
             return;
         }
 
@@ -1321,6 +1417,25 @@ void ir_gen_init_array(node_t* array_elems, ir_operand_t array_start, size_t* co
                     .offset = array_start.offset + (*count)++ * base_type_size
                 },
                 .size = base_type_size
+            };
+
+            pback_array(&ir_code, &ir_node);
+        }
+    }
+}
+
+/* needs to be a different function because is recursive */
+void ir_gen_static_array(node_t* array_elems, size_t base_type_size){
+    for (size_t i = 0; i < get_count_array(array_elems); ++i){
+        if (array_elems[i].d_type.base_type == TYPE_ARRAY)
+            ir_gen_static_array(array_elems[i].array_literal_node.elems, base_type_size);
+        else {
+            ir_gen_node(array_elems[i]);
+            
+            ir_node_t ir_node = (ir_node_t){
+                .instruction = INST_STATIC_ELEM,
+                .op_1.label_id = value.immediate,
+                .op_2.label_id = base_type_size
             };
 
             pback_array(&ir_code, &ir_node);

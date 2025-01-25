@@ -168,6 +168,8 @@
         NOD_INIT_ARRAY,
         NOD_ADD_POINTER,
         NOD_SUB_POINTER,
+        NOD_STATIC_ARRAY_INIT,
+        NOD_SUB_POINTER_POINTER,
         /* not implemented yet */
         NOD_POST_DECREMENT,
         /* not implemented yet */
@@ -466,6 +468,13 @@ typedef enum {                  /* dst, op_1, op_2 */
     INST_GET_ADDRESS,           /* dst, src, NULL */
     /* array instructions */
     INST_ADD_POINTER,           /* dst, ptr, index */
+    INST_SUB_POINTER,           /* dst, ptr, index */
+    /* static array related instructions */
+    INST_STATIC_ARRAY_PUBLIC,   /* identifier, size, elem_size */ 
+    INST_STATIC_ARRAY_LOCAL,    /* identifier, size, elem_size */
+    INST_STATIC_ARRAY,          /* identifier, size, elem_size */ 
+    INST_STATIC_ELEM,           /* NULL, val, size */
+    INST_TEXT_SECTION,          /* NULL, NULL, NULL */
  } ir_inst_t;
 
 typedef enum {

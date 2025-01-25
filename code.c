@@ -1,9 +1,11 @@
-int read_array(long array[2][2]){
-    return (int)array[1LU][0LU];
-}
+char hello_world[15] = (char[15]){'H', 'e', 'l', 'l', 'o', ',', ' ', 'W', 'o', 'r', 'l', 'd', '!', '\0'};
+
+long zeros[123];
+
+int puts(char* str);
 
 int main(){
-    long array[2][2] = (long[2][2]){{1L, 2L}, {3L, 4L}};
-    array[1LU][0LU] = 12L;
-    return read_array(array);
+    puts(hello_world);
+
+    return (int)((zeros + 12LU) - (zeros + 3LU));
 }
