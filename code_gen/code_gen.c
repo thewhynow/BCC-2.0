@@ -109,6 +109,34 @@ const char* codegen_val(ir_operand_t val, size_t size){
             return str_buff;
         case MEM_ADDRESS:
             return "(%rax)";
+        case STRING:
+            snprintf(str_buff, 4096, ".string_%lu(%%rip)", val.label_id);
+            return str_buff;
+        default:
+            return NULL;
+    }
+}
+
+const char* codegen_static_val(ir_operand_t val, size_t size){
+    
+    static char buff[4096];
+    
+    switch(val.type){
+        case IMM_U32:
+        case IMM_U64:
+        case IMM_U16:
+        case IMM_U8:
+            snprintf(buff, 4096, "$%lu", val.immediate);
+            return buff;
+        case STATIC_MEM:
+            snprintf(buff, 4096, ASM_SYMBOL_PREFIX "%s", val.identifier);
+            return buff;
+        case STATIC_MEM_LOCAL:
+            snprintf(buff, 4096, ASM_SYMBOL_PREFIX ".%lu_%s_%s", func_num, func_name, val.identifier);
+            return buff;
+        case STRING:
+            snprintf(buff, 4096, ASM_SYMBOL_PREFIX ".string_%lu", val.label_id);
+            return buff;
         default:
             return NULL;
     }
@@ -165,7 +193,7 @@ void codegen_binary(const char* inst, ir_operand_t a, ir_operand_t b, ir_operand
         }
     }
     else {
-        if (b.type > ___LVALUE_TYPE_START___ && dst.type > ___LVALUE_TYPE_START___){
+        if (b.type > ___LVALUE_TYPE_START___ && a.type > ___LVALUE_TYPE_START___){
             codegen_mov(b, (ir_operand_t){.type = REG_R10}, size);
 
             char* str = strdup(codegen_val((ir_operand_t){.type = REG_R10}, size));
@@ -626,15 +654,12 @@ void codegen_node(ir_node_t node){
             "pushq %%r9\n"
             /* dont save rax as it is used for function returns */
             "pushq %%r10\n"
-            "pushq %%r11\n"
-            /* ensure 16-byte alignment */
-            "subq $8, %%rsp\n");
+            "pushq %%r11\n");
             return;
         }
 
         case INST_LOAD_CALLER_REGS: {
             fprintf(asm_file,
-            "addq $8, %%rsp\n"
             "pop %%r11\n"
             "pop %%r10\n"
             "pop %%r9\n"
@@ -1028,8 +1053,8 @@ void codegen_node(ir_node_t node){
 
         case INST_STATIC_ELEM: {
             fprintf(asm_file,
-            ".%s %lu\n",
-            asm_static_directive(node.op_2.label_id), node.op_1.label_id);
+            ".%s %s\n",
+            asm_static_directive(node.op_2.label_id), codegen_static_val(node.op_1, node.size));
 
             return;
         }
@@ -1056,10 +1081,114 @@ void codegen_node(ir_node_t node){
 
             return;
         }
+
+        case INST_STATIC_STRING: {
+            #ifdef __APPLE__
+                #define STRING_SECTION ".cstring"
+            #endif
+
+            #ifdef __linux__
+                #define STRING_SECTION ".section .rodata"
+            #endif
+
+            fprintf(asm_file,
+            STRING_SECTION "\n"
+            ".string_%lu:\n"
+            ".asciz \"",
+            node.op_1.label_id);
+
+            for (char* c = node.dst.identifier; *c; ++c){
+
+                switch(*c){
+                        case '\0':
+                            fprintf(asm_file, "\\0");
+                            break;
+                        case '\\':
+                            fprintf(asm_file, "\\\\");
+                            break;
+                        case '\n':
+                            fprintf(asm_file, "\\n");
+                            break;
+                        case '\'':
+                            fprintf(asm_file, "\\'");
+                            break;
+                        case '\"':
+                            fprintf(asm_file, "\\\"");
+                            break;
+                        case '\?':
+                            fprintf(asm_file, "\\?");
+                            break;
+                        case '\a':
+                            fprintf(asm_file, "\\a");
+                            break;
+                        case '\b':
+                            fprintf(asm_file, "\\b");
+                            break;
+                        case '\f':
+                            fprintf(asm_file, "\\f");
+                            break;
+                        case '\r':
+                            fprintf(asm_file, "\\r");
+                            break;
+                        case '\t':
+                            fprintf(asm_file, "\\t");
+                            break;
+                        case '\v':
+                            fprintf(asm_file, "\\v");
+                            break;
+
+                        default:
+                            fprintf(asm_file, "%c", *c);
+                    }
+            }
+
+            fprintf(asm_file,
+            "\"\n"
+            ".text\n");
+
+            return;
+        }
+
+        case INST_STATIC_STRING_P: {
+            fprintf(asm_file,
+            ".data\n"
+            ASM_SYMBOL_PREFIX "%s:\n"
+            ".quad .string_%lu\n"
+            ".text\n",
+            node.dst.identifier, node.op_1.label_id);
+
+            return;
+        }
+        
+        case INST_STATIC_STRING_P_PUBLIC: {
+            fprintf(asm_file,
+            ".data\n"
+            ".globl %1$s\n"
+            ASM_SYMBOL_PREFIX "%1$s:\n"
+            ".quad .string_%2$lu\n"
+            ".text\n",
+            node.dst.identifier, node.op_1.label_id);
+
+            return;
+        }
+        
+        case INST_STATIC_STRING_P_LOCAL: {
+            fprintf(asm_file,
+            ".data\n"
+            ".globl %1$s\n"
+            ".%2$lu_%3$s_%1$s:\n"
+            ".quad .string_%4$lu\n"
+            ".text\n",
+            node.dst.identifier, func_num, func_name, node.op_1.label_id);
+
+            return;
+        }
+
+
     }
 }
 
-static const char* REG_NAMES[][4] = {
+static const char* REG_NAMES[16][4] = {
     /* rax */
     { "%al", "%ax", "%eax", "%rax" },
     /* rbx */

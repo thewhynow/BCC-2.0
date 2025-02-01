@@ -9,8 +9,8 @@ FEATURES SUPPORTED:
         - loops, functions, switches, etc.
     2. static and file-scope variables
         - can only be initialized with plain number constants - not constant expressions
-    4. types: char, short, int, long + unsigned for all
-        - no implicit casts -> even for constants
+    4. types: char, short, int, long + unsigned for all, + arrays and strings
+        - no implicit casts -> even for constants (excluding array to pointer casts)
         - to declare a char, short, or long constant use 'C', 'S', or 'L' suffixes respectively
         - to declare an unsigned constant, use the 'U' suffix AFTER the base-type suffix
 

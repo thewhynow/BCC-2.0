@@ -39,7 +39,6 @@ static void parse_error(const char* msg){
 }
 
 void data_t_dstr(void* _data){
-    data_type_t* data = _data;
     if (((data_type_t*)_data)->base_type == TYPE_POINTER || ((data_type_t*)_data)->base_type == TYPE_ARRAY){
         data_t_dstr(((data_type_t*)_data)->ptr_derived_type);
         free(((data_type_t*)_data)->ptr_derived_type);
@@ -55,12 +54,41 @@ data_type_t* alloc_data_t(data_type_t type){
 void symbol_dstr(void* _symbol){
     symbol_t* symbol = _symbol;
 
-    data_t_dstr(&symbol->data_type);
+    if (symbol->symbol_type != SYM_VARIADIC){
+        data_t_dstr(&symbol->data_type);
+        if (symbol->symbol_type == SYM_FUNCTION)
+            free_array(symbol->args, symbol_dstr); 
+    }
+    return;
+}
 
-    if (symbol->symbol_type == SYM_FUNCTION)
-        free_array(symbol->args, symbol_dstr); else
+symbol_t clone_symbol_t(symbol_t symbol){
+    
+    symbol_t result;
+    data_type_t clone_data_t(data_type_t src);
 
-    return;       
+    if (symbol.symbol_type == SYM_FUNCTION){
+        symbol_t* copied_args = alloc_array(sizeof(symbol_t), 1);
+
+        for (size_t i = 0; i < get_count_array(symbol.args); ++i){
+            result = clone_symbol_t(symbol.args[i]);
+            pback_array(&copied_args, &result);
+        }
+
+
+        return (symbol_t){
+            .args = copied_args,
+            .data_type = clone_data_t(symbol.data_type),
+            .name = symbol.name,
+            .symbol_type = SYM_FUNCTION
+        };
+    }
+    else {
+        result = symbol;
+        result.data_type = clone_data_t(symbol.data_type);
+
+        return result;
+    }
 }
 
 static size_t token_count = 0;
@@ -173,11 +201,12 @@ node_t parse_top_level(){
 
 
         if (symbol.symbol_type == SYM_FUNCTION){
-            pback_array(&global_scope->top_scope, &symbol);
 
             for (size_t i = 0; i < get_count_array(symbol.args); ++i)
                 if (symbol.args[i].data_type.base_type == TYPE_ARRAY)
                     symbol.args[i].data_type.base_type = TYPE_POINTER;
+            
+            pback_array(&global_scope->top_scope, &symbol);
 
             if (curr_token.type == TOK_OPEN_BRACE){
                 function_scope = alloc_array(sizeof(symbol_t*), 1);
@@ -194,7 +223,10 @@ node_t parse_top_level(){
                     current_scope->above_scope = global_scope;
 
                     for (size_t i = 0; i < get_count_array(symbol.args); ++i)
-                        pback_array(&current_scope->top_scope, symbol.args + i);
+                        if (symbol.args[i].symbol_type != SYM_VARIADIC){
+                            symbol_t arg = clone_symbol_t(symbol.args[i]);
+                            pback_array(&current_scope->top_scope, &arg);
+                        }
 
                     while (curr_token.type != TOK_CLOSE_BRACE){
                         node = parse_expr();
@@ -954,6 +986,15 @@ node_t parse_fac(){
                 break;
             }
 
+            case TOK_STRING_LITERAL: {
+                char* str = curr_token.identifier;
+                advance_token();
+                return (node_t){
+                    .type = NOD_STRING_LITERAL,
+                    .const_node.str_literal = str
+                };
+            }
+
             default: {
                 parse_error("unexpected token");
             }
@@ -1427,7 +1468,8 @@ node_t parse_expr_level_15(){
 void parse_node_dstr(void* _node){
     node_t* node = _node;
 
-    data_t_dstr(&node->d_type);
+    if (node->type)
+        data_t_dstr(&node->d_type);
 
     switch(node->type){
         case NOD_NULL:
@@ -1593,6 +1635,8 @@ void parse_node_dstr(void* _node){
 
             return;
         }
+        case NOD_STRING_LITERAL:
+            return;
     }
 }
 
@@ -1615,31 +1659,44 @@ data_type_t parse_anonymous_declaration(data_type_t d_type){
             return d_type;
 
         if (curr_token.type == TOK_OPEN_BRACKET) {
-            while (curr_token.type == TOK_OPEN_BRACKET){
-                advance_token();
-                if (curr_token.type == TOK_INTEGER){
-                    data_type_t derived_type = d_type;
-                    
-                    d_type = (data_type_t){
-                        .base_type = TYPE_ARRAY,
-                        .array_size = curr_token.literals.uint,
-                        .ptr_derived_type = malloc(sizeof(data_type_t))
-                    };
-
-                    *d_type.ptr_derived_type = derived_type;
-
+            data_type_t array_type = {0};
+                data_type_t* base_type = NULL;
+                
+                while (curr_token.type == TOK_OPEN_BRACKET){
                     advance_token();
+                    if (curr_token.type == TOK_INTEGER){
 
-                    if (curr_token.type == TOK_CLOSE_BRACKET)
+                        base_type = &array_type;
+
+                        while (base_type->ptr_derived_type)
+                            base_type = base_type->ptr_derived_type;
+                        
+                        *base_type = (data_type_t){
+                            .base_type = TYPE_ARRAY,
+                            .array_size = curr_token.literals.uint,
+                            .ptr_derived_type = malloc(sizeof(data_type_t))
+                        };
+
+                        *base_type->ptr_derived_type = (data_type_t){0};
+
                         advance_token();
-                    else
-                        parse_error("expected ']'");
-                }
-                else
-                    parse_error("can only use signed integer constant for array subscript");
-            }
 
-            return d_type;
+                        if (curr_token.type == TOK_CLOSE_BRACKET)
+                            advance_token();
+                        else
+                            parse_error("expected ']'");
+                    }
+                    else
+                        parse_error("can only use signed integer constant for array subscript");
+                }
+
+                for(base_type = &array_type; base_type->base_type == TYPE_ARRAY; base_type = base_type->ptr_derived_type);
+
+                *base_type = d_type;
+
+                d_type = array_type;
+
+                return d_type;
         }
         else
             parse_error("expected ',' or ')' after anonymous declaration");
@@ -1682,18 +1739,25 @@ symbol_t parse_declaration(data_type_t d_type){
             }
 
             case TOK_OPEN_BRACKET: {
+                data_type_t array_type = {0};
+                data_type_t* base_type = NULL;
+                
                 while (curr_token.type == TOK_OPEN_BRACKET){
                     advance_token();
                     if (curr_token.type == TOK_INTEGER){
-                        data_type_t derived_type = d_type;
+
+                        base_type = &array_type;
+
+                        while (base_type->ptr_derived_type)
+                            base_type = base_type->ptr_derived_type;
                         
-                        d_type = (data_type_t){
+                        *base_type = (data_type_t){
                             .base_type = TYPE_ARRAY,
                             .array_size = curr_token.literals.uint,
                             .ptr_derived_type = malloc(sizeof(data_type_t))
                         };
 
-                        *d_type.ptr_derived_type = derived_type;
+                        *base_type->ptr_derived_type = (data_type_t){0};
 
                         advance_token();
 
@@ -1705,6 +1769,12 @@ symbol_t parse_declaration(data_type_t d_type){
                     else
                         parse_error("can only use signed integer constant for array subscript");
                 }
+
+                for(base_type = &array_type; base_type->base_type == TYPE_ARRAY; base_type = base_type->ptr_derived_type);
+
+                *base_type = d_type;
+
+                d_type = array_type;
 
                 return (symbol_t){
                     .name = name,
@@ -1849,14 +1919,22 @@ symbol_t* parse_function_args(){
     if (curr_token.type == TOK_OPEN_PAREN){
         advance_token();
         
-        for (data_type_t d_type = parse_type(); d_type.base_type; d_type = parse_type()){
+        for (data_type_t d_type = parse_type(); d_type.base_type || curr_token.type == TOK_ELIPSES; d_type = parse_type()){
             if (d_type.base_type){
                 var = parse_declaration(d_type);
                 pback_array(&args, &var);
+            } else
+            if (curr_token.type == TOK_ELIPSES){
+                var = (symbol_t){
+                    .symbol_type = SYM_VARIADIC
+                };
+                pback_array(&args, &var);
+
+                advance_token();
             }
             else
-                parse_error("expected type");
-            
+                parse_error("expected typename or '...'");
+
             if (curr_token.type == TOK_COMMA)
                 advance_token(); else
             if (curr_token.type == TOK_CLOSE_PAREN)

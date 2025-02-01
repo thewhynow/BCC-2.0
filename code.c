@@ -1,11 +1,28 @@
-char hello_world[15] = (char[15]){'H', 'e', 'l', 'l', 'o', ',', ' ', 'W', 'o', 'r', 'l', 'd', '!', '\0'};
+int printf(const char* __restrict fmt, ...);
 
-long zeros[123];
+unsigned int sleep(unsigned int seconds);
 
-int puts(char* str);
 
-int main(){
-    puts(hello_world);
 
-    return (int)((zeros + 12LU) - (zeros + 3LU));
+int main(int argc, char** argv){
+
+    char* strings[9] = (char*[9]){
+        "I pledge alegiance",
+        "to the flag",
+        "of the United States of America",
+        "and to the republic",
+        "for which it stands",
+        "one Nation under God",
+        "indivisible",
+        "liberty and justice",
+        "for all."
+    };
+
+    for (unsigned long i = 0LU; i < 9LU; ++i){
+        printf("%s\n", strings[i]);
+        sleep(2U);
+    }
+
+    for (unsigned long i = 0LU; i < 9LU; ++i)
+        printf("%p\n", strings + i);
 }

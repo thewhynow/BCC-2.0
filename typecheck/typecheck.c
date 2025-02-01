@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "typecheck.h"
 #include "../lib/vector/C_vector.h"
@@ -40,14 +41,16 @@ bool type_comp(data_type_t* type_1, data_type_t* type_2, bool check_storage_clas
 }
 
 bool is_constant(node_t* node){
-    if (node->type == NOD_INTEGER  ||
-        node->type == NOD_LONG     ||
-        node->type == NOD_SHORT    ||
-        node->type == NOD_CHAR     ||
-        node->type == NOD_UINTEGER ||
-        node->type == NOD_ULONG    ||
-        node->type == NOD_USHORT   ||
-        node->type == NOD_UCHAR) 
+    if (node->type == NOD_INTEGER       ||
+        node->type == NOD_LONG          ||
+        node->type == NOD_SHORT         ||
+        node->type == NOD_CHAR          ||
+        node->type == NOD_UINTEGER      ||
+        node->type == NOD_ULONG         ||
+        node->type == NOD_USHORT        ||
+        node->type == NOD_UCHAR         ||
+        node->type == NOD_STRING_LITERAL 
+    ) 
         return true;               else
     if (node->type == NOD_ARRAY_LITERAL){
         for (size_t i = 0; i < get_count_array(node->array_literal_node.elems); ++i)
@@ -177,6 +180,15 @@ void typecheck_node(node_t* node){
             if (func->data_type.base_type == TYPE_ARRAY)
                 typecheck_error("function cannot return array type");
 
+            bool variadic_defined = false;
+            for (size_t i = 0; i < get_count_array(func->args); ++i){
+                if (variadic_defined)
+                    typecheck_error("cannot specify function arguments after '...' operator");
+                else
+                    if (func->args[i].symbol_type == SYM_VARIADIC)
+                        variadic_defined = true;
+            }
+
             curr_func = func;
             curr_scope = node->func_node.function_scope;
             
@@ -197,19 +209,50 @@ void typecheck_node(node_t* node){
             }, NULL, NULL);
 
             if (func){
+
+                bool variadic_start = false;
                 for (size_t i = 0; i < get_count_array(node->func_call_node.args); ++i){
+                    if (func->args[i].symbol_type == SYM_VARIADIC){
+                        variadic_start = true;
+                    }
+                    
                     typecheck_node(node->func_call_node.args + i);
+                    node_t *make_node(node_t node);
 
-                    array_pointer_decay(node->func_call_node.args + i, &func->args[i].data_type);
+                    if (node->func_call_node.args[i].d_type.base_type == TYPE_ARRAY){
+                        node->func_call_node.args[i] = (node_t){
+                            .type = NOD_REFERENCE,
+                            .unary_node.value = make_node(node->func_call_node.args[i])
+                        };
 
-                    if (!type_comp(&node->func_call_node.args[i].d_type, &func->args[i].data_type, false, true, false))
-                        typecheck_error("mismatching function argument types");
+                        void data_t_dstr(void* data);
+
+                        data_t_dstr(&node->func_call_node.args[i].unary_node.value->d_type);
+
+                        typecheck_node(node->func_call_node.args + i);
+                    }
+                    
+                    if (!variadic_start){
+                        array_pointer_decay(node->func_call_node.args + i, &func->args[i].data_type);
+
+                        if (!type_comp(&node->func_call_node.args[i].d_type, &func->args[i].data_type, false, true, false))
+                            typecheck_error("mismatching function argument types");
+                    }
                 }
 
-                if (get_count_array(node->func_call_node.args) == get_count_array(func->args))
-                    node->d_type = clone_data_t(func->data_type);
+                size_t non_variadic_args = 0;
+                for (; non_variadic_args < get_count_array(func->args); ++non_variadic_args)
+                    if (func->args[non_variadic_args].symbol_type == SYM_VARIADIC)
+                        break;
+
+                if (!variadic_start){
+                    if (get_count_array(node->func_call_node.args) >= non_variadic_args)
+                        node->d_type = clone_data_t(func->data_type);
+                    else
+                        typecheck_error("invalid number of arguments passed to function");
+                }
                 else
-                    typecheck_error("invalid number of arguments passed to function");
+                    node->d_type = clone_data_t(func->data_type);
             }
             else
                 typecheck_error("attempt to call undefined function");
@@ -337,10 +380,10 @@ void typecheck_node(node_t* node){
         case NOD_STATIC_INIT: {
             typecheck_node(node->static_init_node.value);
 
-            if (node->static_init_node.value->type == NOD_ARRAY_LITERAL)
+            if (node->static_init_node.value->type == NOD_ARRAY_LITERAL || node->static_init_node.value->type == NOD_STRING_LITERAL)
                 node->type = NOD_STATIC_ARRAY_INIT;
 
-            if (!type_comp(&node->static_init_node.value->d_type, &node->static_init_node.sym_info.data_type, false, false, false))
+            if (!type_comp(&node->static_init_node.value->d_type, &node->static_init_node.sym_info.data_type, false, true, false))
                 typecheck_error("cannot assign type B to type A");
 
             if (!is_constant(node->static_init_node.value))
@@ -491,7 +534,10 @@ void typecheck_node(node_t* node){
 
         case NOD_ARRAY_LITERAL: {
             for (size_t i = 0; i < get_count_array(node->array_literal_node.elems); ++i){
+
                 typecheck_node(node->array_literal_node.elems + i);
+                array_pointer_decay(node->array_literal_node.elems + i, node->array_literal_node.type.ptr_derived_type);
+
                 if (!type_comp(&node->array_literal_node.elems[i].d_type, node->array_literal_node.type.ptr_derived_type, false, false, false))
                     typecheck_error("array literal element type mismatch");
             }
@@ -553,6 +599,21 @@ void typecheck_node(node_t* node){
             };
 
             node->d_type = clone_data_t(*node->unary_node.value->binary_node.value_a->d_type.ptr_derived_type);
+
+            return;
+        }
+
+        case NOD_STRING_LITERAL: {
+            node->d_type = (data_type_t){
+                .base_type = TYPE_ARRAY,
+                .array_size = strlen(node->const_node.str_literal) + 1,
+                .ptr_derived_type = malloc(sizeof(data_type_t))
+            };
+
+            *node->d_type.ptr_derived_type = (data_type_t){
+                .base_type = TYPE_CHAR,
+                .is_signed = true,
+            };
 
             return;
         }

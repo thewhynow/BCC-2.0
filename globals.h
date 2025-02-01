@@ -57,6 +57,11 @@
         TOK_COMMA,
         TOK_OPEN_BRACKET,
         TOK_CLOSE_BRACKET,
+        TOK_STRING_LITERAL,
+        TOK_ELIPSES,
+        TOK_PERIOD,
+        TOK_ARROW,
+        TOK_BYPASS,
         /* KEYWORD START */
         KEYW_int,
         KEYW_return,
@@ -78,6 +83,7 @@
         KEYW_char,
         KEYW_unsigned,
         KEYW_signed,
+        KEYW_void,
     } token_type_t;
 
     typedef struct {
@@ -166,10 +172,11 @@
         NOD_SUBSCRIPT,
         NOD_ARRAY_LITERAL,
         NOD_INIT_ARRAY,
+        NOD_STATIC_ARRAY_INIT,
         NOD_ADD_POINTER,
         NOD_SUB_POINTER,
-        NOD_STATIC_ARRAY_INIT,
         NOD_SUB_POINTER_POINTER,
+        NOD_STRING_LITERAL,
         /* not implemented yet */
         NOD_POST_DECREMENT,
         /* not implemented yet */
@@ -178,7 +185,7 @@
 
     typedef enum {
         TYPE_NULL = 0,
-        TYPE_VOID,
+        TYPE_VOID = 0,
         TYPE_INT,
         TYPE_LONG,
         TYPE_SHORT,
@@ -226,6 +233,7 @@
             unsigned long long_literal;
             unsigned short short_literal;
             unsigned char char_literal;
+            char* str_literal;
         };
     } nod_constant_t;
 
@@ -236,10 +244,10 @@
     /* returns NULL if value not found within array */
     void* array_search(void* array, void* target, bool(*comparison_func)(void* val_a, void* val_b));
 
-
     typedef enum {
         SYM_FUNCTION,
         SYM_VARIABLE,
+        SYM_VARIADIC, /* used as a placeholder for the '...' operator in function declarations */
     } symbol_type_t;
 
     typedef struct symbol_t symbol_t;    
@@ -475,7 +483,12 @@ typedef enum {                  /* dst, op_1, op_2 */
     INST_STATIC_ARRAY,          /* identifier, size, elem_size */ 
     INST_STATIC_ELEM,           /* NULL, val, size */
     INST_TEXT_SECTION,          /* NULL, NULL, NULL */
- } ir_inst_t;
+    /* string related instructions */
+    INST_STATIC_STRING,         /* string, id, NULL */
+    INST_STATIC_STRING_P,       /* identifier, id, NULL */
+    INST_STATIC_STRING_P_PUBLIC,/* identifier, id, NULL */
+    INST_STATIC_STRING_P_LOCAL  /* identifier, id, NULL */
+} ir_inst_t;
 
 typedef enum {
     OP_NULL,
@@ -505,6 +518,7 @@ typedef enum {
     STATIC_MEM,
     STATIC_MEM_LOCAL,
     MEM_ADDRESS, /* always uses %rax */
+    STRING,      /* .string_<lu> */
 } operand_t;
 
 #define is_immediate(operand_type) (((operand_type) > ___IMMEDIATE_TYPE_START___) && ((operand_type) < ___LVALUE_TYPE_START___))
