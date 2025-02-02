@@ -28,9 +28,17 @@ void symbol_dstr(void* _symbol);
 
 #define is_unsigned(type) ((__UNSIGNED_TYPE_START__ < (type).base_type && (type).base_type < __UNSIGNED_TYPE_END__) || (type).base_type == TYPE_POINTER)
 
+ir_node_t* read_only_initializers;
+ir_node_t* static_initializers;
+ir_node_t* zero_initializers;
+
 ir_node_t* ir_gen(node_t* program_ast){
     global_vars = alloc_array(sizeof(ir_operand_t), 1);
+
     ir_code = alloc_array(sizeof(ir_node_t), 1);
+    read_only_initializers = alloc_array(sizeof(ir_node_t), 1);
+    static_initializers = alloc_array(sizeof(ir_node_t), 1);
+    zero_initializers = alloc_array(sizeof(ir_node_t), 1);
 
     for (size_t i = 0; i < get_count_array(global_scope->top_scope); ++i){
         ir_operand_t value;
@@ -113,7 +121,7 @@ static void ir_gen_func(nod_function_t node){
                         .dst.identifier = function_scope[node.body.scope_id][i].name,
                         .op_2.label_id = get_type_size(function_scope[node.body.scope_id][i].data_type)
                     };
-                    pback_array(&ir_code, &ir_node);
+                    pback_array(&zero_initializers, &ir_node);
                 }
             } else
             if (function_scope[node.body.scope_id][i].data_type.storage_class == STORAGE_EXTERN)
@@ -293,7 +301,7 @@ static void ir_gen_node(node_t node){
                             .dst.identifier = function_scope[node.block_node.scope_id][i].name,
                             .op_2.label_id = get_type_size(function_scope[node.block_node.scope_id][i].data_type)
                         };
-                        pback_array(&ir_code, &ir_node);
+                        pback_array(&zero_initializers, &ir_node);
                     }
                 } else
                 if (function_scope[node.block_node.scope_id][i].data_type.storage_class == STORAGE_EXTERN)
@@ -849,7 +857,7 @@ static void ir_gen_node(node_t node){
                                 .dst.identifier = function_scope[node.for_node.scope_id][i].name,
                                 .op_2.label_id = get_type_size(function_scope[node.for_node.scope_id][i].data_type)
                             };
-                            pback_array(&ir_code, &ir_node);
+                            pback_array(&zero_initializers, &ir_node);
                         }
                     } else
                     if (function_scope[node.for_node.scope_id][i].data_type.storage_class == STORAGE_EXTERN)
@@ -1115,7 +1123,7 @@ static void ir_gen_node(node_t node){
                     ir_node.instruction = INST_INIT_STATIC_LOCAL;
             }
 
-            pback_array(&ir_code, &ir_node);
+            pback_array(&static_initializers, &ir_node);
             return;
         }
 
@@ -1307,7 +1315,6 @@ static void ir_gen_node(node_t node){
         }
 
         case NOD_INIT_ARRAY: {
-            /*
             if (node.array_init_node.elems->type == NOD_STRING_LITERAL){
                 node_t* str_array = alloc_array(sizeof(node_t), 1);
 
@@ -1365,7 +1372,6 @@ static void ir_gen_node(node_t node){
                 });
 
             }
-            */
 
             data_type_t base_type = node.array_init_node.elems->d_type;
 
@@ -1420,7 +1426,7 @@ static void ir_gen_node(node_t node){
                     else
                         ir_node.instruction = INST_STATIC_STRING_P_LOCAL;
 
-                    pback_array(&ir_code, &ir_node);
+                    pback_array(&static_initializers, &ir_node);
 
                     return;
                 }
@@ -1507,14 +1513,9 @@ static void ir_gen_node(node_t node){
                 }
             }
 
-            pback_array(&ir_code, &ir_node);
+            pback_array(&static_initializers, &ir_node);
 
             ir_gen_static_array(node.static_init_node.value->array_literal_node.elems, get_type_size(base_type));
-
-            ir_node = (ir_node_t){
-                .instruction = INST_TEXT_SECTION
-            };
-            pback_array(&ir_code, &ir_node);
 
             return;
         }
@@ -1547,11 +1548,29 @@ static void ir_gen_node(node_t node){
                 .dst.identifier = node.const_node.str_literal,
                 .op_1.label_id = string_id
             };
-            pback_array(&ir_code, &ir_node);
+            pback_array(&read_only_initializers, &ir_node);
 
             value = (ir_operand_t){
                 .type = STRING,
                 .label_id = string_id++
+            };
+
+            return;
+        }
+
+        case NOD_SIZEOF_TYPE: {
+            value = (ir_operand_t){
+                .type = IMM_U64,
+                .immediate = get_type_size(node.sizeof_type_node.d_type)
+            };
+
+            return;
+        }
+
+        case NOD_SIZEOF_EXPR: {
+            value = (ir_operand_t){
+                .type = IMM_U64,
+                .immediate = get_type_size(node.unary_node.value->d_type)
             };
 
             return;
@@ -1591,18 +1610,37 @@ void ir_gen_init_array(node_t* array_elems, ir_operand_t array_start, size_t* co
 void ir_gen_static_array(node_t* array_elems, size_t base_type_size){
     for (size_t i = 0; i < get_count_array(array_elems); ++i){
         if (array_elems[i].type == NOD_ARRAY_LITERAL)
-            ir_gen_static_array(array_elems[i].array_literal_node.elems, base_type_size);
+            ir_gen_static_array(array_elems[i].array_literal_node.elems, base_type_size); else
+        if (array_elems[i].type == NOD_STRING_LITERAL){
+            node_t* convert_string_literal_to_array_literal(node_t* node);
+
+            node_t* char_elems = convert_string_literal_to_array_literal(array_elems + i);
+
+            ir_gen_static_array(char_elems, 1);
+
+            free_array(char_elems, parse_node_dstr);
+        } else
+        if (array_elems[i].type == NOD_REFERENCE && array_elems[i].unary_node.value->type == NOD_STRING_LITERAL){
+            ir_gen_node(*array_elems[i].unary_node.value);
+            value.type = STRING_ADDRESS;
+            goto add_node;
+        }
         else {
+
             ir_gen_node(array_elems[i]);
             
-            ir_node_t ir_node = (ir_node_t){
+            ir_node_t ir_node;
+
+            add_node:
+
+            ir_node = (ir_node_t){
                 .instruction = INST_STATIC_ELEM,
                 .op_1 = value,
                 .op_2.label_id = base_type_size,
                 .size = base_type_size
             };
+            pback_array(&static_initializers, &ir_node);
 
-            pback_array(&ir_code, &ir_node);
         }
     }
 }
@@ -1665,6 +1703,39 @@ ir_operand_t ir_gen_function_arg(size_t arg_num){
             result.offset = ((arg_num - 6) * 8) + 8;
             break;
     }
+
+    return result;
+}
+
+node_t* convert_string_literal_to_array_literal(node_t* node){
+    node_t* result = alloc_array(sizeof(node_t), 1);
+
+    node_t elem;
+    
+    for (char* c = node->const_node.str_literal; *c; ++c){
+        elem = (node_t){
+            .type = NOD_CHAR,
+            .const_node.char_literal = *c,
+            .d_type = (data_type_t){
+                .base_type = TYPE_CHAR,
+                .is_signed = true,
+                .storage_class = STORAGE_NULL
+            }
+        };
+        pback_array(&result, &elem);
+    }
+
+
+    elem = (node_t){
+        .type = NOD_CHAR,
+        .const_node.char_literal = 0,
+        .d_type = (data_type_t){
+            .base_type = TYPE_CHAR,
+            .is_signed = true,
+            .storage_class = STORAGE_NULL
+        }
+    };
+    pback_array(&result, &elem);
 
     return result;
 }

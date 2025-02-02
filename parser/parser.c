@@ -995,6 +995,34 @@ node_t parse_fac(){
                 };
             }
 
+            case KEYW_sizeof: {
+                advance_token();
+                if (curr_token.type == TOK_OPEN_PAREN){
+                    advance_token();
+                    data_type_t type = parse_type();
+                    if (type.base_type){
+                        if (curr_token.type == TOK_CLOSE_PAREN){
+                            advance_token();
+                            return (node_t){
+                                .type = NOD_SIZEOF_TYPE,
+                                .sizeof_type_node.d_type = type
+                            };
+                        }
+                        else
+                            parse_error("expected ')'");
+                    }
+                    else
+                        parse_error("expected type name");
+                }
+                else {
+                    node_t node = parse_fac();
+                    return (node_t){
+                        .type = NOD_SIZEOF_EXPR,
+                        .unary_node.value = make_node(node)
+                    };
+                }
+            }
+
             default: {
                 parse_error("unexpected token");
             }
@@ -1500,6 +1528,7 @@ void parse_node_dstr(void* _node){
         case NOD_BITWISE_NOT:
         case NOD_REFERENCE:
         case NOD_DEREFERENCE:
+        case NOD_SIZEOF_EXPR:
             parse_node_dstr(node->unary_node.value);
             free(node->unary_node.value);
             return;
@@ -1635,7 +1664,13 @@ void parse_node_dstr(void* _node){
 
             return;
         }
+
         case NOD_STRING_LITERAL:
+            return;
+
+
+        case NOD_SIZEOF_TYPE:
+            data_t_dstr(&node->sizeof_type_node.d_type);
             return;
     }
 }
@@ -1895,6 +1930,20 @@ data_type_t parse_type(){
                     return (data_type_t){0};
 
                 break;
+            }
+
+            case KEYW_void: {
+                if (!result.base_type){
+                    if (!signedness_defined){
+                        advance_token();
+                        result.base_type = TYPE_VOID;
+                        break;
+                    }
+                    else
+                        parse_error("stray 'void' in declaration");
+                }
+                else
+                    parse_error("stray 'void' in declaration");
             }
 
             default: {

@@ -811,6 +811,14 @@ token_type_t is_keyword(const char* str, size_t* increment_counter){
         *increment_counter += 4;
         fprintf(stderr, "WARNING: 'const' keyword found and ignored\n");
         return TOK_BYPASS;
+    } else
+    if (!strncmp("void", str, 4)){
+        *increment_counter += 3;
+        return KEYW_void;
+    } else
+    if (!strncmp("sizeof", str, 6)){
+        *increment_counter += 5;
+        return KEYW_sizeof;
     }
     else
         return TOK_NULL;

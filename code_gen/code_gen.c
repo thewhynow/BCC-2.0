@@ -42,6 +42,30 @@ void codegen(ir_node_t* nodes, const char* asm_file_path){
     for (size_t i = 0; i < get_count_array(nodes); ++i)
         codegen_node(nodes[i]);
 
+    extern ir_node_t* read_only_initializers;
+    extern ir_node_t* static_initializers;
+    extern ir_node_t* zero_initializers;
+
+
+    fprintf(asm_file, ".data\n");
+    for (size_t i = 0; i < get_count_array(static_initializers); ++i)
+        codegen_node(static_initializers[i]);
+
+    #ifdef __APPLE__
+        #define STRING_SECTION ".cstring"
+    #endif
+    #ifdef __linux__
+        #define STRING_SECTION ".section .rodata"
+    #endif
+    
+    fprintf(asm_file, STRING_SECTION "\n");
+    for (size_t i = 0; i < get_count_array(read_only_initializers); ++i)
+        codegen_node(read_only_initializers[i]);
+
+    fprintf(asm_file, ".bss\n");
+    for (size_t i = 0; i < get_count_array(zero_initializers); ++i)
+        codegen_node(zero_initializers[i]);
+
     #ifdef __linux__
         fprintf(asm_file, ".section .note.GNU-stack, \"\",@progbits\n");
     #endif
@@ -65,8 +89,7 @@ void codegen_func(ir_node_t func, storage_class_t storage_class){
         "pushq %%rbp\n"
         "movq %%rsp, %%rbp\n"
         "subq $%lu, %%rsp\n",
-        func.dst.identifier, func.op_1.label_id);
-    
+        func.dst.identifier, func.op_1.label_id); 
 }
 
 static const char* REG_NAMES[][4];
@@ -112,6 +135,9 @@ const char* codegen_val(ir_operand_t val, size_t size){
         case STRING:
             snprintf(str_buff, 4096, ".string_%lu(%%rip)", val.label_id);
             return str_buff;
+        case STRING_ADDRESS:
+            snprintf(str_buff, 4096, ".string_%lu", val.label_id);
+            return str_buff;
         default:
             return NULL;
     }
@@ -126,16 +152,19 @@ const char* codegen_static_val(ir_operand_t val, size_t size){
         case IMM_U64:
         case IMM_U16:
         case IMM_U8:
-            snprintf(buff, 4096, "$%lu", val.immediate);
+            snprintf(buff, 4096, "%lu", val.immediate);
             return buff;
         case STATIC_MEM:
-            snprintf(buff, 4096, ASM_SYMBOL_PREFIX "%s", val.identifier);
+            snprintf(buff, 4096, ASM_SYMBOL_PREFIX "$%s", val.identifier);
             return buff;
         case STATIC_MEM_LOCAL:
-            snprintf(buff, 4096, ASM_SYMBOL_PREFIX ".%lu_%s_%s", func_num, func_name, val.identifier);
+            snprintf(buff, 4096, ASM_SYMBOL_PREFIX "$.%lu_%s_%s", func_num, func_name, val.identifier);
             return buff;
         case STRING:
-            snprintf(buff, 4096, ASM_SYMBOL_PREFIX ".string_%lu", val.label_id);
+            snprintf(buff, 4096,  ".string_%lu", val.label_id);
+            return buff;
+        case STRING_ADDRESS:
+            snprintf(buff, 4096,  ".string_%lu", val.label_id);
             return buff;
         default:
             return NULL;
@@ -578,22 +607,18 @@ void codegen_node(ir_node_t node){
 
         case INST_INIT_STATIC: {
             fprintf(asm_file,
-            ".data\n"
             ".balign %lu\n"
             ASM_SYMBOL_PREFIX "%s:\n"
-            ".%s %lu\n"
-            ".text\n",
+            ".%s %lu\n",
             node.op_2.label_id, node.dst.identifier, asm_static_directive(node.op_2.label_id), node.op_1.immediate);
             return;
         }
 
         case INST_INIT_STATIC_Z: {
             fprintf(asm_file,
-            ".bss\n"
             ".balign %lu\n"
             ASM_SYMBOL_PREFIX "%s:\n"
-            ".zero %lu\n"
-            ".text\n",
+            ".zero %lu\n",
             (node.op_2.label_id < 16 ? node.op_2.label_id : 16), node.dst.identifier, node.op_2.label_id);
             return;
         }
@@ -601,11 +626,9 @@ void codegen_node(ir_node_t node){
         case INST_INIT_STATIC_PUBLIC: {
             fprintf(asm_file,
             ".globl " ASM_SYMBOL_PREFIX "%s\n"
-            ".data\n"
             ".balign %lu\n"
             ASM_SYMBOL_PREFIX "%s:\n"
-            ".%s %lu\n"
-            ".text\n",
+            ".%s %lu\n",
             node.dst.identifier, node.op_2.label_id, node.dst.identifier, asm_static_directive(node.size), node.op_1.immediate);
             return;
         }
@@ -613,18 +636,15 @@ void codegen_node(ir_node_t node){
         case INST_INIT_STATIC_Z_PUBLIC: {
             fprintf(asm_file,
             ".globl " ASM_SYMBOL_PREFIX "%s\n"
-            ".bss\n"
             ".balign %lu\n"
             ASM_SYMBOL_PREFIX "%s:\n"
-            ".zero %lu\n"
-            ".text\n",
+            ".zero %lu\n",
             node.dst.identifier, (node.op_2.label_id < 16 ? node.op_2.label_id : 16), node.dst.identifier, node.op_2.label_id);
             return;
         }
 
         case INST_INIT_STATIC_LOCAL: {
             fprintf(asm_file,
-            ".data\n"
             ".balign %lu\n"
             ASM_SYMBOL_PREFIX ".%lu_%s_%s:\n"
             ".%s %lu\n"
@@ -635,11 +655,9 @@ void codegen_node(ir_node_t node){
 
         case INST_INIT_STATIC_Z_LOCAL: {
             fprintf(asm_file,
-            ".bss\n"
             ".balign %lu\n"
             ASM_SYMBOL_PREFIX ".%lu_%s_%s:\n"
-            ".zero %lu\n"
-            ".text\n",
+            ".zero %lu\n",
             (node.op_2.label_id < 16 ? node.op_2.label_id : 16), func_num, func_name, node.dst.identifier, node.op_2.label_id);
             return;
         }
@@ -1036,7 +1054,6 @@ void codegen_node(ir_node_t node){
                 node.dst.identifier);
 
             fprintf(asm_file,
-            ".data\n"
             ASM_SYMBOL_PREFIX "%s:\n",
             node.dst.identifier);
 
@@ -1052,22 +1069,15 @@ void codegen_node(ir_node_t node){
         }
 
         case INST_STATIC_ELEM: {
-            fprintf(asm_file,
+            fprintf( asm_file,
             ".%s %s\n",
             asm_static_directive(node.op_2.label_id), codegen_static_val(node.op_1, node.size));
 
             return;
         }
 
-        case INST_TEXT_SECTION: {
-            fprintf(asm_file,
-            ".text\n");
-            return;
-        }
-
         case INST_STATIC_ARRAY_LOCAL: {
             fprintf(asm_file,
-            ".data\n"
             ASM_SYMBOL_PREFIX ".%lu_%s_%s:\n",
             func_num, func_name, node.dst.identifier);
 
@@ -1083,16 +1093,7 @@ void codegen_node(ir_node_t node){
         }
 
         case INST_STATIC_STRING: {
-            #ifdef __APPLE__
-                #define STRING_SECTION ".cstring"
-            #endif
-
-            #ifdef __linux__
-                #define STRING_SECTION ".section .rodata"
-            #endif
-
             fprintf(asm_file,
-            STRING_SECTION "\n"
             ".string_%lu:\n"
             ".asciz \"",
             node.op_1.label_id);
@@ -1143,18 +1144,16 @@ void codegen_node(ir_node_t node){
             }
 
             fprintf(asm_file,
-            "\"\n"
-            ".text\n");
+            "\"\n");
 
             return;
         }
 
         case INST_STATIC_STRING_P: {
             fprintf(asm_file,
-            ".data\n"
             ASM_SYMBOL_PREFIX "%s:\n"
-            ".quad .string_%lu\n"
-            ".text\n",
+            ".balign 8\n"
+            ".quad .string_%lu\n",
             node.dst.identifier, node.op_1.label_id);
 
             return;
@@ -1162,11 +1161,11 @@ void codegen_node(ir_node_t node){
         
         case INST_STATIC_STRING_P_PUBLIC: {
             fprintf(asm_file,
-            ".data\n"
             ".globl %1$s\n"
             ASM_SYMBOL_PREFIX "%1$s:\n"
+            ".balign 8\n"
             ".quad .string_%2$lu\n"
-            ".text\n",
+            ,
             node.dst.identifier, node.op_1.label_id);
 
             return;
@@ -1174,16 +1173,20 @@ void codegen_node(ir_node_t node){
         
         case INST_STATIC_STRING_P_LOCAL: {
             fprintf(asm_file,
-            ".data\n"
             ".globl %1$s\n"
             ".%2$lu_%3$s_%1$s:\n"
+            ".balign 8\n"
             ".quad .string_%4$lu\n"
-            ".text\n",
+            ,
             node.dst.identifier, func_num, func_name, node.op_1.label_id);
 
             return;
         }
 
+        default: {
+            fprintf(stderr, "Unknown instruction %d\n", node.instruction);
+            exit(-1);
+        }
 
     }
 }

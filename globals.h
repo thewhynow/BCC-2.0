@@ -84,6 +84,7 @@
         KEYW_unsigned,
         KEYW_signed,
         KEYW_void,
+        KEYW_sizeof,
     } token_type_t;
 
     typedef struct {
@@ -177,6 +178,8 @@
         NOD_SUB_POINTER,
         NOD_SUB_POINTER_POINTER,
         NOD_STRING_LITERAL,
+        NOD_SIZEOF_EXPR,
+        NOD_SIZEOF_TYPE,
         /* not implemented yet */
         NOD_POST_DECREMENT,
         /* not implemented yet */
@@ -185,7 +188,7 @@
 
     typedef enum {
         TYPE_NULL = 0,
-        TYPE_VOID = 0,
+        TYPE_VOID,
         TYPE_INT,
         TYPE_LONG,
         TYPE_SHORT,
@@ -363,6 +366,10 @@
         var_info_t array_var;
     } nod_array_init_t;
 
+    typedef struct {
+        data_type_t d_type;
+    } nod_sizeof_type_t;
+
     struct node_t {
         node_type_t type;
         union {
@@ -385,6 +392,7 @@
             nod_type_cast_t type_cast_node;
             nod_array_literal_t array_literal_node;
             nod_array_init_t array_init_node;
+            nod_sizeof_type_t sizeof_type_node;
         };
         /* used for type-annotating the AST */
         data_type_t d_type;
@@ -482,12 +490,11 @@ typedef enum {                  /* dst, op_1, op_2 */
     INST_STATIC_ARRAY_LOCAL,    /* identifier, size, elem_size */
     INST_STATIC_ARRAY,          /* identifier, size, elem_size */ 
     INST_STATIC_ELEM,           /* NULL, val, size */
-    INST_TEXT_SECTION,          /* NULL, NULL, NULL */
     /* string related instructions */
     INST_STATIC_STRING,         /* string, id, NULL */
     INST_STATIC_STRING_P,       /* identifier, id, NULL */
     INST_STATIC_STRING_P_PUBLIC,/* identifier, id, NULL */
-    INST_STATIC_STRING_P_LOCAL  /* identifier, id, NULL */
+    INST_STATIC_STRING_P_LOCAL,  /* identifier, id, NULL */
 } ir_inst_t;
 
 typedef enum {
@@ -519,6 +526,7 @@ typedef enum {
     STATIC_MEM_LOCAL,
     MEM_ADDRESS, /* always uses %rax */
     STRING,      /* .string_<lu> */
+    STRING_ADDRESS, /* a seperate value because is printed ... slightly differently */
 } operand_t;
 
 #define is_immediate(operand_type) (((operand_type) > ___IMMEDIATE_TYPE_START___) && ((operand_type) < ___LVALUE_TYPE_START___))

@@ -50,16 +50,17 @@ bool is_constant(node_t* node){
         node->type == NOD_USHORT        ||
         node->type == NOD_UCHAR         ||
         node->type == NOD_STRING_LITERAL 
-    ) 
-        return true;               else
+    )
+        return true;
+    else
     if (node->type == NOD_ARRAY_LITERAL){
         for (size_t i = 0; i < get_count_array(node->array_literal_node.elems); ++i)
             if (!is_constant(node->array_literal_node.elems + i))
                 return false;
         return true;
-    }
+    } 
     else
-        return false;
+        return node->type == NOD_REFERENCE && node->unary_node.value->type == NOD_STRING_LITERAL;
 }
 
 data_type_t clone_data_t(data_type_t src){
@@ -623,6 +624,26 @@ void typecheck_node(node_t* node){
         case NOD_SUB_POINTER:
         case NOD_STATIC_ARRAY_INIT:
             return;
+
+        case NOD_SIZEOF_TYPE: {
+            node->d_type = (data_type_t){
+                .base_type = TYPE_UNSIGNED_LONG,
+                .is_signed = false,
+                .storage_class = STORAGE_NULL
+            };
+            return;
+        }
+
+        case NOD_SIZEOF_EXPR: {
+            typecheck_node(node->unary_node.value);
+
+            node->d_type = (data_type_t){
+                .base_type = TYPE_UNSIGNED_LONG,
+                .is_signed = false,
+                .storage_class = STORAGE_NULL
+            };
+            return;
+        }
 
         default: {
             #define __STRINGIFY(x) #x
