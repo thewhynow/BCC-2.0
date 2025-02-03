@@ -72,6 +72,10 @@ void codegen(ir_node_t* nodes, const char* asm_file_path){
 
     fclose(asm_file);
 
+    free_array(zero_initializers, NULL);
+    free_array(static_initializers, NULL);
+    free_array(read_only_initializers, NULL);
+
     extern scope_t* global_scope;
     void symbol_dstr(void* _symbol);
     free_array(global_scope->top_scope, symbol_dstr);
@@ -131,7 +135,7 @@ const char* codegen_val(ir_operand_t val, size_t size){
             snprintf(str_buff, 4096, ASM_SYMBOL_PREFIX ".%lu_%s_%s(%%rip)", func_num, func_name, val.identifier);
             return str_buff;
         case MEM_ADDRESS:
-            return "(%rax)";
+            return "(%r11)";
         case STRING:
             snprintf(str_buff, 4096, ".string_%lu(%%rip)", val.label_id);
             return str_buff;
@@ -144,21 +148,15 @@ const char* codegen_val(ir_operand_t val, size_t size){
 }
 
 const char* codegen_static_val(ir_operand_t val, size_t size){
-    
+
     static char buff[4096];
-    
+
     switch(val.type){
         case IMM_U32:
         case IMM_U64:
         case IMM_U16:
         case IMM_U8:
             snprintf(buff, 4096, "%lu", val.immediate);
-            return buff;
-        case STATIC_MEM:
-            snprintf(buff, 4096, ASM_SYMBOL_PREFIX "$%s", val.identifier);
-            return buff;
-        case STATIC_MEM_LOCAL:
-            snprintf(buff, 4096, ASM_SYMBOL_PREFIX "$.%lu_%s_%s", func_num, func_name, val.identifier);
             return buff;
         case STRING:
             snprintf(buff, 4096,  ".string_%lu", val.label_id);
@@ -705,6 +703,8 @@ void codegen_node(ir_node_t node){
                     "movslq %s, %s\n",
                     str, codegen_val(node.dst, INST_TYPE_QUADWORD));
             }
+
+            free(str);
             
             return;
         }

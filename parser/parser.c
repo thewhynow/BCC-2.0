@@ -4,15 +4,13 @@
 #include <stdbool.h>
 #include <string.h>
 
-/* not quite sure why i am even supporting windows here - the compiler doesnt even produce valid windows assembly */
-#if defined(_MSC_VER)
-    #include <intrin.h>
-    #define MARK_UNREACHABLE_CODE __assume(0)
-#elif defined(__GNUC__)
+#if defined(__GNUC__)
     #define MARK_UNREACHABLE_CODE __builtin_unreachable()
 #else
     #define MARK_UNREACHABLE_CODE abort(0)
 #endif
+
+#define WARN_EMPTY_EXPRESSION 0
 
 static token_t* tokens =    NULL;
 static token_t curr_token = {0};
@@ -856,7 +854,9 @@ node_t parse_fac(){
             }
 
             case TOK_SEMICOLON: {
-                printf("WARNING: %s.%lu: empty expression or syntax error\n", fpath, curr_token.line);
+                #if WARN_EMPTY_EXPRESSION
+                    printf("WARNING: %s.%lu: empty expression or syntax error\n", fpath, curr_token.line);
+                #endif
                 return (node_t){
                     .type = NOD_NULL
                 };
@@ -1587,10 +1587,12 @@ void parse_node_dstr(void* _node){
         case NOD_IF_STATEMENT: {
             parse_node_dstr(node->conditional_node.condition);
             parse_node_dstr(node->conditional_node.true_block);
-            parse_node_dstr(node->conditional_node.false_block);
             free(node->conditional_node.condition);
             free(node->conditional_node.true_block);
-            free(node->conditional_node.false_block);
+            if (node->conditional_node.false_block){
+                parse_node_dstr(node->conditional_node.false_block);
+                free(node->conditional_node.false_block);
+            }
             return;
         }
 

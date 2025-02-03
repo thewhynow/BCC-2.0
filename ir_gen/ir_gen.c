@@ -32,6 +32,9 @@ ir_node_t* read_only_initializers;
 ir_node_t* static_initializers;
 ir_node_t* zero_initializers;
 
+#define is_arg_register(value)\
+    ((value).type == REG_DI || (value).type == REG_SI || (value).type == REG_DX || (value).type == REG_CX || (value).type == REG_R8 || (value).type == REG_R9)
+
 ir_node_t* ir_gen(node_t* program_ast){
     global_vars = alloc_array(sizeof(ir_operand_t), 1);
 
@@ -54,7 +57,7 @@ ir_node_t* ir_gen(node_t* program_ast){
                     .dst.identifier = value.identifier,
                     .op_2.label_id = get_type_size(global_scope->top_scope[i].data_type),
                 };
-                pback_array(&ir_code, &ir_node);
+                pback_array(&zero_initializers, &ir_node);
             }
             pback_array(&global_vars, &value);
         } 
@@ -229,6 +232,10 @@ static void ir_gen_node(node_t node){
 
     switch(node.type){
         case NOD_NULL:{
+            value = (ir_operand_t){
+                .type = IMM_U8,
+                .immediate = 0
+            };
             return;
         }
 
@@ -411,7 +418,6 @@ static void ir_gen_node(node_t node){
                 ir_gen_binary_op(INST_UMOD, node.binary_node.value_a, node.binary_node.value_b);
             else
                 ir_gen_binary_op(INST_MOD, node.binary_node.value_a, node.binary_node.value_b);
-            return;
             return;
         }
 
@@ -1047,18 +1053,65 @@ static void ir_gen_node(node_t node){
             };
             pback_array(&ir_code, &ir_node);
 
+            typedef struct {
+                ir_operand_t value;
+                size_t arg_num;
+            } overwrite_args_t;
+
+            overwrite_args_t* overwritten_args = alloc_array(sizeof(overwrite_args_t), 1);
+            bool* arg_overwritten = alloc_array(sizeof(bool), 1);
+
+            for (size_t i = 1; i <= 6 && i <= arg_num; ++i){
+                bool is_overwritten;
+                if ((is_overwritten = (node.func_call_node.args[i - 1].type == NOD_VARIABLE_ACCESS && is_arg_register(all_vars[node.func_call_node.args[i - 1].var_access_node.var_info.scope_id][node.func_call_node.args[i - 1].var_access_node.var_info.var_num])))){                    
+                    
+                    ir_gen_node(node.func_call_node.args[i - 1]);
+                    
+                    ir_node = (ir_node_t){
+                        .instruction = INST_COPY,
+                        .size = get_type_size(node.func_call_node.args[i - 1].d_type),
+                        .dst = var_gen(get_type_size(node.func_call_node.args[i - 1].d_type)),
+                        .op_1 = value
+                    };
+                    pback_array(&ir_code, &ir_node);
+
+                    overwrite_args_t overwritten_arg = (overwrite_args_t){
+                        .arg_num = i,
+                        .value = ir_node.dst
+                    };
+                    pback_array(&overwritten_args, &overwritten_arg);
+                }
+
+                pback_array(&arg_overwritten, &is_overwritten);
+            }
+
             /* generate args passed through registers */
             size_t i = 1;
             for (; i <= 6 && i <= arg_num; ++i){
-                ir_gen_node(node.func_call_node.args[i - 1]);
+                if (!arg_overwritten[i - 1]){
+                    ir_gen_node(node.func_call_node.args[i - 1]);
+                    ir_node = (ir_node_t){
+                        .instruction = INST_COPY,
+                        .size = get_type_size(node.func_call_node.args[i - 1].d_type),
+                        .dst = ir_gen_function_arg(i),
+                        .op_1 = value
+                    };
+                    pback_array(&ir_code, &ir_node);
+                }
+            }
+
+            for (size_t i = 0; i < get_count_array(overwritten_args); ++i){
                 ir_node = (ir_node_t){
                     .instruction = INST_COPY,
-                    .size = get_type_size(node.func_call_node.args[i - 1].d_type),
-                    .dst = ir_gen_function_arg(i),
-                    .op_1 = value
+                    .size = get_type_size(node.func_call_node.args[overwritten_args[i].arg_num - 1].d_type),
+                    .dst = ir_gen_function_arg(overwritten_args[i].arg_num),
+                    .op_1 = overwritten_args[i].value
                 };
                 pback_array(&ir_code, &ir_node);
             }
+
+            free_array(overwritten_args, NULL);
+            free_array(arg_overwritten, NULL);
 
             /* generate args passed through stack */
             if (arg_num > 6){
@@ -1249,7 +1302,7 @@ static void ir_gen_node(node_t node){
             ir_node = (ir_node_t){
                 .instruction = INST_COPY,
                 .op_1 = value,
-                .dst = (ir_operand_t){.type = REG_AX},
+                .dst = (ir_operand_t){.type = REG_R11},
                 .size = get_type_size(node.unary_node.value->d_type)
             };
             pback_array(&ir_code, &ir_node);
@@ -1266,7 +1319,7 @@ static void ir_gen_node(node_t node){
             ir_node = (ir_node_t){
                 .instruction = INST_GET_ADDRESS,
                 .op_1 = value,
-                .dst = (ir_operand_t){.type = REG_AX},
+                .dst = (ir_operand_t){.type = REG_R11},
                 .size = INST_TYPE_QUADWORD
             };
             pback_array(&ir_code, &ir_node);
@@ -1280,7 +1333,7 @@ static void ir_gen_node(node_t node){
             ir_gen_node(*node.binary_node.value_a);
             ir_operand_t ptr = value;
             ir_gen_node(*node.binary_node.value_b);
-            
+
             ir_node = (ir_node_t){
                 .instruction = INST_ADD_POINTER,
                 .dst = var_gen(8),
@@ -1662,6 +1715,8 @@ static size_t get_type_size(data_type_t type){
             return 1;
         case TYPE_ARRAY:
             return get_type_size(*type.ptr_derived_type) * type.array_size;
+        case TYPE_VOID:
+            return 1; /* im lazy, sue me */
         default:
             return 0;
     }

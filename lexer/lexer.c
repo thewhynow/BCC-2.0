@@ -16,6 +16,8 @@ static inline size_t getpagesize(){
 # define getpagesize() sysconf(_SC_PAGE_SIZE)
 #endif
 
+#define WARN_UNSUPPORTED_KEYWORDS 0
+
 /* return TOK_NULL (0) on false */
 token_type_t is_keyword(const char* str, size_t* increment_counter);
 
@@ -804,13 +806,17 @@ token_type_t is_keyword(const char* str, size_t* increment_counter){
     } else
     if (!strncmp("__restrict", str, 10)){
         *increment_counter += 9;
-        fprintf(stderr, "WARNING: '__restrict' keyword found and ignored\n");
+        #if WARN_UNSUPPORTED_KEYWORDS
+            fprintf(stderr, "WARNING: '__restrict' keyword found and ignored\n");
+        #endif
         return TOK_BYPASS; /* ignore the keyword */
     } else
     if (!strncmp("const", str, 5)){
         *increment_counter += 4;
-        fprintf(stderr, "WARNING: 'const' keyword found and ignored\n");
-        return TOK_BYPASS;
+        #if WARN_UNSUPPORTED_KEYWORDS
+            fprintf(stderr, "WARNING: 'const' keyword found and ignored\n");
+        #endif
+        return TOK_BYPASS; /* ignore the keyword */
     } else
     if (!strncmp("void", str, 4)){
         *increment_counter += 3;

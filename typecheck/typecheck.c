@@ -29,7 +29,7 @@ extern scope_t* global_scope;
 */
 bool type_comp(data_type_t* type_1, data_type_t* type_2, bool check_storage_class, bool array_pointer_decay, bool commutative){
     if (type_1->base_type == TYPE_POINTER && type_2->base_type == TYPE_POINTER)
-        return type_comp(type_1->ptr_derived_type, type_2->ptr_derived_type, check_storage_class, array_pointer_decay, commutative); else
+        return (type_1->ptr_derived_type->base_type == TYPE_VOID || type_2->ptr_derived_type->base_type == TYPE_VOID) || type_comp(type_1->ptr_derived_type, type_2->ptr_derived_type, check_storage_class, array_pointer_decay, commutative); else
     if (type_1->base_type == TYPE_ARRAY && type_2->base_type == TYPE_ARRAY)
         return type_1->array_size == type_2->array_size && type_comp(type_1->ptr_derived_type, type_2->ptr_derived_type, check_storage_class, array_pointer_decay, commutative); else
     if ((array_pointer_decay && type_1->base_type == TYPE_ARRAY && type_2->base_type == TYPE_POINTER) || (commutative && array_pointer_decay && type_1->base_type == TYPE_POINTER && type_2->base_type == TYPE_ARRAY)){
@@ -120,7 +120,9 @@ void typecheck_node(node_t* node){
 
     switch(node->type){
         case NOD_NULL: {
-            node->d_type = (data_type_t){0};
+            node->d_type = (data_type_t){
+                .base_type = TYPE_VOID,
+            };
             return;
         }
 
@@ -150,7 +152,7 @@ void typecheck_node(node_t* node){
 
         case NOD_CHAR: {
             node->d_type = (data_type_t){
-                .base_type = TYPE_CHAR,
+                .base_type = TYPE_INT,
                 .storage_class = STORAGE_NULL
             };
             return;
@@ -582,10 +584,15 @@ void typecheck_node(node_t* node){
                 typecheck_error("one operand of subscript must be pointer / array type");
 
             if (node->binary_node.value_a->d_type.base_type == TYPE_ARRAY){
+                
+                void data_t_dstr(void *data);
+                data_t_dstr(&node->binary_node.value_a->d_type);
+                
                 *node->binary_node.value_a = (node_t){
                     .type = NOD_REFERENCE,
                     .unary_node.value = make_node(*node->binary_node.value_a)
                 };
+
 
                 typecheck_node(node->binary_node.value_a);
             }
@@ -642,6 +649,10 @@ void typecheck_node(node_t* node){
                 .is_signed = false,
                 .storage_class = STORAGE_NULL
             };
+            return;
+        }
+
+        case NOD_LABEL: {
             return;
         }
 
