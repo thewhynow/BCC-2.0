@@ -16,8 +16,6 @@ static inline size_t getpagesize(){
 # define getpagesize() sysconf(_SC_PAGE_SIZE)
 #endif
 
-#define WARN_UNSUPPORTED_KEYWORDS 0
-
 /* return TOK_NULL (0) on false */
 token_type_t is_keyword(const char* str, size_t* increment_counter);
 
@@ -457,6 +455,23 @@ token_t* lex(const char* fpath){
                     };
                     pback_array(&tok_vec, &token);
                     ++i;
+                } else
+                if ((i < (line_str_len - 1)) && (line_str[i + 1] == '/')) {
+                    do
+                        ++i;
+                    while (line_str[i] != '\n');
+                } else
+                if ((i < (line_str_len - 1)) && (line_str[i + 1] == '*')){
+                    ++i;
+                    while (true){
+                        if (line_str[i] == '\n')
+                            ++line_count;
+                        ++i;
+                        if (line_str[i] == '*' && line_str[i + 1] == '/'){
+                            i += 2;
+                            break;
+                        }
+                    }
                 }
                 else {
                     token = (token_t){
@@ -724,108 +739,119 @@ token_t* lex(const char* fpath){
 }
 
 token_type_t is_keyword(const char* str, size_t* increment_counter){
-    if (!strncmp("int", str, 3)){
+    int keyword_strcmp(const char* keyword, const char* str, size_t N);
+
+    if (!keyword_strcmp("int", str, 3)){
         *increment_counter += 2;
         return KEYW_int;
     } else
-    if (!strncmp("return", str, 6)){
+    if (!keyword_strcmp("return", str, 6)){
         *increment_counter += 5;
         return KEYW_return;
     } else
-    if (!strncmp("if", str, 2)){
+    if (!keyword_strcmp("if", str, 2)){
         ++*increment_counter;
         return KEYW_if;
     } else
-    if (!strncmp("else", str, 4)){
+    if (!keyword_strcmp("else", str, 4)){
         *increment_counter += 3;
         return KEYW_else;
     } else
-    if (!strncmp("while", str, 5)){
+    if (!keyword_strcmp("while", str, 5)){
         *increment_counter += 4;
         return KEYW_while;
     } else
-    if (!strncmp("break", str, 5)){
+    if (!keyword_strcmp("break", str, 5)){
         *increment_counter += 4;
         return KEYW_break;
     } else
-    if (!strncmp("continue", str, 8)){
+    if (!keyword_strcmp("continue", str, 8)){
         *increment_counter += 7;
         return KEYW_continue;
     } else
-    if (!strncmp("do", str, 2)){
+    if (!keyword_strcmp("do", str, 2)){
         *increment_counter += 1;
         return KEYW_do;
     } else
-    if (!strncmp("switch", str, 6)){
+    if (!keyword_strcmp("switch", str, 6)){
         *increment_counter += 5;
         return KEYW_switch;
     } else
-    if (!strncmp("for", str, 3)){
+    if (!keyword_strcmp("for", str, 3)){
         *increment_counter += 2;
         return KEYW_for;
     } else
-    if (!strncmp("goto", str, 4)){
+    if (!keyword_strcmp("goto", str, 4)){
         *increment_counter += 3;
         return KEYW_goto;
     } else
-    if (!strncmp("case", str, 4)){
+    if (!keyword_strcmp("case", str, 4)){
         *increment_counter += 3;
         return KEYW_case;
     } else
-    if (!strncmp("default", str, 7)){
+    if (!keyword_strcmp("default", str, 7)){
         *increment_counter += 6;
         return KEYW_default;
     } else
-    if (!strncmp("static", str, 6)){
+    if (!keyword_strcmp("static", str, 6)){
         *increment_counter += 5;
         return KEYW_static;
     } else
-    if (!strncmp("extern", str, 6)){
+    if (!keyword_strcmp("extern", str, 6)){
         *increment_counter += 5;
         return KEYW_extern;
     } else
-    if (!strncmp("long", str, 4)){
+    if (!keyword_strcmp("long", str, 4)){
         *increment_counter += 3;
         return KEYW_long;
     } else
-    if (!strncmp("short", str, 5)){
+    if (!keyword_strcmp("short", str, 5)){
         *increment_counter += 4;
         return KEYW_short;
     } else
-    if (!strncmp("char", str, 4)){
+    if (!keyword_strcmp("char", str, 4)){
         *increment_counter += 3;
         return KEYW_char;
     } else
-    if (!strncmp("unsigned", str, 8)){
+    if (!keyword_strcmp("unsigned", str, 8)){
         *increment_counter += 7;
         return KEYW_unsigned;
     } else
-    if (!strncmp("signed", str, 6)){
+    if (!keyword_strcmp("signed", str, 6)){
         *increment_counter += 5;
         return KEYW_signed;
     } else
-    if (!strncmp("__restrict", str, 10)){
-        *increment_counter += 9;
+    if (!keyword_strcmp("restrict", str, 8)){
+        *increment_counter += 7;
         #if WARN_UNSUPPORTED_KEYWORDS
-            fprintf(stderr, "WARNING: '__restrict' keyword found and ignored\n");
+            fprintf(stderr, "WARNING: 'restrict' keyword found and ignored\n");
         #endif
         return TOK_BYPASS; /* ignore the keyword */
     } else
-    if (!strncmp("const", str, 5)){
+    if (!keyword_strcmp("const", str, 5)){
         *increment_counter += 4;
         #if WARN_UNSUPPORTED_KEYWORDS
             fprintf(stderr, "WARNING: 'const' keyword found and ignored\n");
         #endif
         return TOK_BYPASS; /* ignore the keyword */
     } else
-    if (!strncmp("void", str, 4)){
+    if (!keyword_strcmp("void", str, 4)){
         *increment_counter += 3;
         return KEYW_void;
     } else
-    if (!strncmp("sizeof", str, 6)){
+    if (!keyword_strcmp("sizeof", str, 6)){
         *increment_counter += 5;
         return KEYW_sizeof;
     }
     else
         return TOK_NULL;
+}
+
+int keyword_strcmp(const char* keyword, const char* str, size_t N){
+    int result = strncmp(keyword, str, strlen(keyword));
+
+    if (strlen(str) > N && is_identifier_char(str[N]))
+        return 1;
+    else
+        return result;
 }

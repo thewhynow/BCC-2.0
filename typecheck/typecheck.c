@@ -28,6 +28,8 @@ extern scope_t* global_scope;
         array_pointer_decay but in reverse as well
 */
 bool type_comp(data_type_t* type_1, data_type_t* type_2, bool check_storage_class, bool array_pointer_decay, bool commutative){
+    if ((type_1->base_type == TYPE_POINTER && type_1->ptr_derived_type->base_type == TYPE_VOID) || (type_2->base_type == TYPE_POINTER && type_2->ptr_derived_type->base_type == TYPE_VOID))
+        return true; else
     if (type_1->base_type == TYPE_POINTER && type_2->base_type == TYPE_POINTER)
         return (type_1->ptr_derived_type->base_type == TYPE_VOID || type_2->ptr_derived_type->base_type == TYPE_VOID) || type_comp(type_1->ptr_derived_type, type_2->ptr_derived_type, check_storage_class, array_pointer_decay, commutative); else
     if (type_1->base_type == TYPE_ARRAY && type_2->base_type == TYPE_ARRAY)
@@ -75,6 +77,23 @@ data_type_t clone_data_t(data_type_t src){
         *result.ptr_derived_type = clone_data_t(*src.ptr_derived_type);
         
         return result;
+    } else
+    if (src.base_type == TYPE_FUNCTION_POINTER){
+        data_type_t result = (data_type_t){
+            .base_type = src.base_type,
+            .storage_class = src.storage_class,
+            .func_args = alloc_array(sizeof(data_type_t), 1),
+            .func_return_type = malloc(sizeof(data_type_t))
+        };
+
+        for (size_t i = 0; i < get_count_array(src.func_args); ++i){
+            data_type_t clone = clone_data_t(src.func_args[i]);
+            pback_array(&result.func_args, &clone);
+        }
+
+        *result.func_return_type = clone_data_t(*src.func_return_type);
+
+        return result;
     }
     else
         return src;
@@ -87,22 +106,26 @@ data_type_t clone_data_t(data_type_t src){
         (p_2) = intermediate;      \
     }
 
+#ifdef __APPLE__
+    #define FUNCTION_REFERENCE_DECAY 0
+#else
+    #define FUNCTION_REFERENCE_DECAY ((node_1->type == NOD_VARIABLE_ACCESS && node_1->d_type.base_type == TYPE_FUNCTION_POINTER) && d_type->base_type == TYPE_FUNCTION_POINTER)
+#endif
+
 void array_pointer_decay(node_t* node_1, data_type_t* d_type){
     
     node_t* make_node(node_t node);
     
-    if (node_1->d_type.base_type == TYPE_ARRAY && (d_type->base_type == TYPE_POINTER || d_type->base_type == TYPE_UNSIGNED_LONG)){
+    if (((node_1->d_type.base_type == TYPE_ARRAY) && (d_type->base_type == TYPE_POINTER || d_type->base_type == TYPE_UNSIGNED_LONG)) || FUNCTION_REFERENCE_DECAY){
         void data_t_dstr(void* data);
         data_t_dstr(&node_1->d_type);
-        
+
         *node_1 = (node_t){
             .type = NOD_REFERENCE,
             .unary_node.value = make_node(*node_1),
         };
 
         void typecheck_node(node_t* node);
-
-
 
         typecheck_node(node_1);
     }
@@ -111,10 +134,10 @@ void array_pointer_decay(node_t* node_1, data_type_t* d_type){
 void typecheck_node(node_t* node){
     static symbol_t* curr_func;
     static symbol_t** curr_scope;
+
     /* "symbol_t" related functions defined in "../parser/parser.c" that i want to use here */
     bool symbol_comp(void* _symbol_a, void* _symbol_b);
     symbol_t* find_symbol(scope_t* scope, symbol_t target, size_t* scope_id_out, size_t* var_num_out);
-
 
     data_type_t get_d_type(node_t* node);
 
@@ -188,12 +211,14 @@ void typecheck_node(node_t* node){
                 if (variadic_defined)
                     typecheck_error("cannot specify function arguments after '...' operator");
                 else
-                    if (func->args[i].symbol_type == SYM_VARIADIC)
+                    if (func->args[i].data_type.base_type == TYPE_VARIADIC)
                         variadic_defined = true;
             }
 
             curr_func = func;
             curr_scope = node->func_node.function_scope;
+
+            curr_scope[0] = global_scope->top_scope;
             
             node_t* block = make_node((node_t){.block_node = node->func_node.body, .type = NOD_BLOCK});
             typecheck_node(block);
@@ -206,59 +231,54 @@ void typecheck_node(node_t* node){
 
         case NOD_FUNC_CALL: {
 
-            symbol_t* func = find_symbol(global_scope, (symbol_t){
-                .name = node->func_call_node.identifier,
-                .symbol_type = SYM_FUNCTION
-            }, NULL, NULL);
+            typecheck_node(node->func_call_node.function);
 
-            if (func){
+            if (node->func_call_node.function->d_type.base_type != TYPE_FUNCTION_POINTER)
+                typecheck_error("attempt to call non-function type");
 
-                bool variadic_start = false;
-                for (size_t i = 0; i < get_count_array(node->func_call_node.args); ++i){
-                    if (func->args[i].symbol_type == SYM_VARIADIC){
-                        variadic_start = true;
-                    }
-                    
+            bool variadic_start = false;
+            for (size_t i = 0; i < get_count_array(node->func_call_node.args); ++i){
+                if (!variadic_start && node->func_call_node.function->d_type.func_args[i].base_type == TYPE_VARIADIC){
+                    variadic_start = true;
+                }
+
+                typecheck_node(node->func_call_node.args + i);
+                node_t *make_node(node_t node);
+
+                if (node->func_call_node.args[i].d_type.base_type == TYPE_ARRAY){
+                    node->func_call_node.args[i] = (node_t){
+                        .type = NOD_REFERENCE,
+                        .unary_node.value = make_node(node->func_call_node.args[i])
+                    };
+
+                    void data_t_dstr(void* data);
+
+                    data_t_dstr(&node->func_call_node.args[i].unary_node.value->d_type);
+
                     typecheck_node(node->func_call_node.args + i);
-                    node_t *make_node(node_t node);
-
-                    if (node->func_call_node.args[i].d_type.base_type == TYPE_ARRAY){
-                        node->func_call_node.args[i] = (node_t){
-                            .type = NOD_REFERENCE,
-                            .unary_node.value = make_node(node->func_call_node.args[i])
-                        };
-
-                        void data_t_dstr(void* data);
-
-                        data_t_dstr(&node->func_call_node.args[i].unary_node.value->d_type);
-
-                        typecheck_node(node->func_call_node.args + i);
-                    }
-                    
-                    if (!variadic_start){
-                        array_pointer_decay(node->func_call_node.args + i, &func->args[i].data_type);
-
-                        if (!type_comp(&node->func_call_node.args[i].d_type, &func->args[i].data_type, false, true, false))
-                            typecheck_error("mismatching function argument types");
-                    }
                 }
-
-                size_t non_variadic_args = 0;
-                for (; non_variadic_args < get_count_array(func->args); ++non_variadic_args)
-                    if (func->args[non_variadic_args].symbol_type == SYM_VARIADIC)
-                        break;
-
+                
                 if (!variadic_start){
-                    if (get_count_array(node->func_call_node.args) >= non_variadic_args)
-                        node->d_type = clone_data_t(func->data_type);
-                    else
-                        typecheck_error("invalid number of arguments passed to function");
+                    array_pointer_decay(node->func_call_node.args + i, node->func_call_node.function->d_type.func_args + i);
+
+                    if (!type_comp(&node->func_call_node.args[i].d_type, node->func_call_node.function->d_type.func_args + i, false, true, false))
+                        typecheck_error("mismatching function argument types");
                 }
+            }
+
+            size_t non_variadic_args = 0;
+            for (; non_variadic_args < get_count_array(node->func_call_node.function->d_type.func_args); ++non_variadic_args)
+                if (node->func_call_node.function->d_type.func_args[non_variadic_args].base_type == TYPE_VARIADIC)
+                    break;
+
+            if (!variadic_start){
+                if (get_count_array(node->func_call_node.args) >= non_variadic_args)
+                    node->d_type = clone_data_t(*node->func_call_node.function->d_type.func_return_type);
                 else
-                    node->d_type = clone_data_t(func->data_type);
+                    typecheck_error("invalid number of arguments passed to function");
             }
             else
-                typecheck_error("attempt to call undefined function");
+                node->d_type = clone_data_t(*node->func_call_node.function->d_type.func_return_type);
 
             return;
         }
@@ -408,7 +428,25 @@ void typecheck_node(node_t* node){
         }
 
         case NOD_VARIABLE_ACCESS: {
-            node->d_type = clone_data_t(curr_scope[node->var_access_node.var_info.scope_id][node->var_access_node.var_info.var_num].data_type);
+
+            data_type_t* alloc_data_t(data_type_t type);
+
+            if (curr_scope[node->var_access_node.var_info.scope_id][node->var_access_node.var_info.var_num].symbol_type == SYM_FUNCTION){
+                data_type_t* args = alloc_array(sizeof(data_type_t), get_count_array(curr_scope[node->var_access_node.var_info.scope_id][node->var_access_node.var_info.var_num].args));
+
+                get_count_array(args) = get_size_array(args);
+
+                for (size_t i = 0; i < get_count_array(curr_scope[node->var_access_node.var_info.scope_id][node->var_access_node.var_info.var_num].args); ++i)
+                    args[i] = clone_data_t(curr_scope[node->var_access_node.var_info.scope_id][node->var_access_node.var_info.var_num].args[i].data_type);
+
+                node->d_type = (data_type_t){
+                    .base_type = TYPE_FUNCTION_POINTER,
+                    .func_args = args,
+                    .func_return_type = alloc_data_t(clone_data_t(curr_scope[node->var_access_node.var_info.scope_id][node->var_access_node.var_info.var_num].data_type))
+                };
+            }
+            else
+                node->d_type = clone_data_t(curr_scope[node->var_access_node.var_info.scope_id][node->var_access_node.var_info.var_num].data_type);
 
             return;
         }
@@ -448,6 +486,7 @@ void typecheck_node(node_t* node){
             for (size_t i = 0; i < get_count_array(node->block_node.code); ++i)
                 typecheck_node(i + node->block_node.code);
             node->d_type = (data_type_t){0};
+            
             return;
         }
 
@@ -516,7 +555,12 @@ void typecheck_node(node_t* node){
             node->d_type.base_type = TYPE_POINTER;
 
             if (node->unary_node.value->d_type.base_type == TYPE_ARRAY)
-                *derived_type = clone_data_t(*node->unary_node.value->d_type.ptr_derived_type);
+                *derived_type = clone_data_t(*node->unary_node.value->d_type.ptr_derived_type); else
+            if (node->unary_node.value->d_type.base_type == TYPE_FUNCTION_POINTER){
+                node->d_type = clone_data_t(node->unary_node.value->d_type);
+                free(derived_type);
+                return;
+            }
             else
                 *derived_type = clone_data_t(node->unary_node.value->d_type);
 
@@ -532,6 +576,9 @@ void typecheck_node(node_t* node){
                 node->d_type = clone_data_t(*node->unary_node.value->d_type.ptr_derived_type);
             else
                 typecheck_error("cannot dereference non-pointer object");
+
+            if (node->d_type.base_type == TYPE_VOID)
+                typecheck_error("cannot dereference void*");
             return;
         }
 
@@ -593,14 +640,13 @@ void typecheck_node(node_t* node){
                     .unary_node.value = make_node(*node->binary_node.value_a)
                 };
 
-
                 typecheck_node(node->binary_node.value_a);
             }
 
             node->type = NOD_ADD_POINTER;
 
             node->d_type = clone_data_t(node->binary_node.value_a->d_type);
-            
+
             *node = (node_t){
                 .type = NOD_DEREFERENCE,
                 .unary_node.value = make_node(*node)

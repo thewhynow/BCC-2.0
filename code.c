@@ -1,17 +1,55 @@
-void *memset(void *__s, int __c, unsigned long __n);
+#include "lib/my_stdlib.h"
 
-char is_prime[1000];
+void* alloc_array(unsigned long elem_size, unsigned long size){
+    void* buff = malloc(24LU + elem_size * size);
+    unsigned long* size_p = (unsigned long*) buff;
+    *size_p = size;
+    *(size_p + 1LU) = 0LU;
+    *(size_p + 2LU) = elem_size;
 
-int main() {
-    memset(is_prime, 1, 1000LU);
-    is_prime[0LU] = is_prime[1LU] = (char)0;
+    return size_p + 3LU;
+}
 
-    for (int i = 2; i * i <= 999; i++) {
-        if (is_prime[(unsigned long)i]) {
-            for (int j = i * i; j <= 999; j += i) {
-                is_prime[(unsigned long)j] = (char)0;
-            }
-        }
+void free_array(void* array, void(*destructor)(void*)){
+    if (destructor) {
+        unsigned long* count = (unsigned long*)array - 2LU;
+        unsigned long* elem_size = count + 1LU;
+        for (unsigned long i = 0LU; i < *count; ++i)
+            destructor((char*)array + (*elem_size * i));
     }
-    return 0;
+
+    free((unsigned long*)array - 3LU);
+}
+
+void pback_array(void** array, void* val){    
+    unsigned long elem_size = *((unsigned long*) *array - 1LU);
+    unsigned long* count = (unsigned long*)*array - 2LU;
+    unsigned long* size = (unsigned long*)*array - 3LU;
+
+    if (*count == *size) {
+        *size += *size / 2LU + 1LU;
+        *array = realloc(size, 24LU + elem_size * *size) + 24LU;
+        if (*array)
+            count = (unsigned long*)*array - 2LU;
+        else
+            perror("ran out of memory while allocating array");
+    }
+
+    void* dst = (char*)*array + (*count)++ * elem_size;
+
+    memcpy(dst, val, elem_size);
+}
+
+int main(){
+    int* a = alloc_array(sizeof(int), 1LU);
+
+    for (int i = 0; i < 10; ++i)
+        pback_array((void**)&a, &i);
+
+    for (unsigned long i = 0LU; i < 10LU; ++i)
+        printf("%i ", a[i]);
+
+    free_array(a, (void*)0);
+
+    putchar('\n');
 }

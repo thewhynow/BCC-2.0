@@ -1,3 +1,32 @@
+/*
+*  there are certain keywords ('restrict', 'inline', 'const', etc)
+*  that are lexed but not parsed by the compiler. this means
+*  that they are not included in the AST. if this is set to 1,
+*  a warning will be printed to stdout whenever one of these
+*  keywords is encountered
+*/
+#define WARN_UNSUPPORTED_KEYWORDS 0
+
+/*
+*   if a factor is parsed with a semicolon, 
+*   an empty expression is indicated. however,
+*   this is not always the case. if this is set
+*   to 1, a warning will be printed to stdout
+*/
+#define WARN_EMPTY_EXPRESSION 0
+
+/*
+*   on macOS, when loading function pointers
+*   from a shared library, the function pointer
+*   needs to be loaded using a special suffix.
+*   as i am not assembling/linking the assembly
+*   myself, it is impossible for me to know if
+*   i should apply the suffix. As a solution,
+*   when loading a function from the stdlib, THAT
+*   HAS A MAN PAGE, i will apply the suffix.
+*/
+#define WARN_STDLIB_CALL 0
+
 #ifdef LEXER_TYPES
 #ifndef LEXER_TYPES_INCLUDE
 #define LEXER_TYPES_INCLUDE
@@ -201,6 +230,8 @@
         __UNSIGNED_TYPE_END__,
         TYPE_POINTER,
         TYPE_ARRAY,
+        TYPE_FUNCTION_POINTER,
+        TYPE_VARIADIC, /* used as placeholder for '...' */
     } base_type_t;
 
     typedef enum {
@@ -217,8 +248,12 @@
         union {
             bool is_signed;
             data_type_t* ptr_derived_type;
+            data_type_t* func_args;
         };
-        size_t array_size;
+        union {
+            size_t array_size;
+            data_type_t* func_return_type;
+        };
     };
 
     typedef struct {
@@ -250,7 +285,6 @@
     typedef enum {
         SYM_FUNCTION,
         SYM_VARIABLE,
-        SYM_VARIADIC, /* used as a placeholder for the '...' operator in function declarations */
     } symbol_type_t;
 
     typedef struct symbol_t symbol_t;    
@@ -340,7 +374,7 @@
     } nod_case_t;
 
     typedef struct {
-        char* identifier;
+        node_t* function;
         node_t* args;
         storage_class_t storage_class;
     } nod_function_call_t;
@@ -440,7 +474,7 @@ typedef enum {                  /* dst, op_1, op_2 */
     INST_LABEL,                 /* label, NULL, NULL */
     INST_USER_LABEL,            /* identifier, NULL, NULL */
     INST_GOTO,                  /* identifier, NULL, NULL */
-    INST_CALL,                  /* identifier, NULL, NULL */
+    INST_CALL,                  /* val, NULL, NULL */
     INST_SAVE_CALLER_REGS,      /* NULL, NULL, NULL */
     INST_LOAD_CALLER_REGS,      /* NULL, NULL, NULL */
     /* memory instructions */
@@ -482,6 +516,8 @@ typedef enum {                  /* dst, op_1, op_2 */
     INST_ZERO_EXTEND_WQ,        /* dst, src, NULL */
     /* pointer-related instructions */
     INST_GET_ADDRESS,           /* dst, src, NULL */
+    INST_LOAD_ADDRESS,          /* dst, ptr, NULL */   
+    INST_STORE_ADDRESS,         /* ptr, src, NULL */
     /* array instructions */
     INST_ADD_POINTER,           /* dst, ptr, index */
     INST_SUB_POINTER,           /* dst, ptr, index */
@@ -494,7 +530,7 @@ typedef enum {                  /* dst, op_1, op_2 */
     INST_STATIC_STRING,         /* string, id, NULL */
     INST_STATIC_STRING_P,       /* identifier, id, NULL */
     INST_STATIC_STRING_P_PUBLIC,/* identifier, id, NULL */
-    INST_STATIC_STRING_P_LOCAL,  /* identifier, id, NULL */
+    INST_STATIC_STRING_P_LOCAL, /* identifier, id, NULL */
 } ir_inst_t;
 
 typedef enum {
@@ -527,6 +563,7 @@ typedef enum {
     MEM_ADDRESS, /* always uses %rax */
     STRING,      /* .string_<lu> */
     STRING_ADDRESS, /* a seperate value because is printed ... slightly differently */
+    FUNCTION,
 } operand_t;
 
 #define is_immediate(operand_type) (((operand_type) > ___IMMEDIATE_TYPE_START___) && ((operand_type) < ___LVALUE_TYPE_START___))
