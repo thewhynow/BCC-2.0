@@ -8,11 +8,14 @@ FEATURES SUPPORTED:
     1. all c-language constructs
         - loops, functions, switches, etc.
     2. static and file-scope variables
-        - can only be initialized with plain number constants - not constant expressions
-    4. types: char, short, int, long + unsigned for all, + arrays, pointers, strings
+        - can be initialized with number constants or constant literals
+            - typecasts of constant expressions are now considered constant
+    3. types: char, short, int, long + unsigned for all, + arrays, pointers, strings, and STRUCTS!
         - no implicit casts -> even for constants (excluding array to pointer casts)
         - to declare a char, short, or long constant use 'C', 'S', or 'L' suffixes respectively
         - to declare an unsigned constant, use the 'U' suffix AFTER the base-type suffix
+        - for structure literals, must use the {.identifier = value} syntax
+
 
 PARTS OF THE C-STANDARD IGNORED:
     - allowing function declarations inside scope

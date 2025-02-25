@@ -34,6 +34,8 @@ const char* generate_asm_inst(const char* inst, size_t size){
     return buff;
 }
 
+extern char** func_names;
+
 void codegen(ir_node_t* nodes, const char* asm_file_path){
     asm_file = fopen(asm_file_path, "w");
 
@@ -78,6 +80,7 @@ void codegen(ir_node_t* nodes, const char* asm_file_path){
     free_array(zero_initializers, NULL);
     free_array(static_initializers, NULL);
     free_array(read_only_initializers, NULL);
+    free_array(func_names, NULL);
 
     extern scope_t* global_scope;
     void symbol_dstr(void* _symbol);
@@ -163,6 +166,18 @@ const char* codegen_val(ir_operand_t val, size_t size){
 
             return str_buff;
         }
+        case STATIC_MEM_OFFSET: {
+            snprintf(str_buff, 4096, ASM_SYMBOL_PREFIX "%s%+ld(%%rip)", val.identifier, val.secondary_offset);
+            return str_buff;
+        }
+        case STATIC_MEM_LOCAL_OFFSET:{
+            snprintf(str_buff, 4096, ASM_SYMBOL_PREFIX ".%lu_%s_%s%+ld(%%rip)", func_num, func_name, val.identifier, val.secondary_offset);
+            return str_buff;
+        }
+        case MEM_ADDRESS_OFFSET: {
+            snprintf(str_buff, 4096, "%ld(%%r11)", val.secondary_offset);
+            return str_buff;
+        }
         default:
             return NULL;
     }
@@ -190,25 +205,138 @@ const char* codegen_static_val(ir_operand_t val, size_t size){
     }
 }
 
+ir_operand_t get_val_offset(ir_operand_t val, long offset);
+
 void codegen_mov(ir_operand_t src, ir_operand_t dst, size_t size){
     static char alt_val_buff[4096];
-    
-    strcpy(alt_val_buff, codegen_val(src, size));
 
-    char* ax_str = strdup(codegen_val((ir_operand_t){.type = REG_AX}, size));
-    
-    if (src.type > ___LVALUE_TYPE_START___ && dst.type > ___LVALUE_TYPE_START___){
-        fprintf(asm_file,
-        "mov%1$c %2$s, %3$s\n"
-        "mov%1$c %3$s, %4$s\n",
-        asm_inst_prefix(size), alt_val_buff, ax_str, codegen_val(dst, size));
+    if (size == 1 || size == 2 || size == 4 || size == 8){
+        strcpy(alt_val_buff, codegen_val(src, size));
+
+        char* r10_str = strdup(codegen_val((ir_operand_t){.type = REG_R10}, size));
+        
+        if (src.type > ___LVALUE_TYPE_START___ && dst.type > ___LVALUE_TYPE_START___){
+            fprintf(asm_file,
+            "mov%1$c %2$s, %3$s\n"
+            "mov%1$c %3$s, %4$s\n",
+            asm_inst_prefix(size), alt_val_buff, r10_str, codegen_val(dst, size));
+        }
+        else
+            fprintf(asm_file, 
+                "%s %s, %s\n", 
+                generate_asm_inst("mov", size), alt_val_buff, codegen_val(dst, size));
+
+        free(r10_str);
     }
-    else
-        fprintf(asm_file, 
-            "%s %s, %s\n", 
-            generate_asm_inst("mov", size), alt_val_buff, codegen_val(dst, size));
+    else {
+        if (dst.type  < ___IMMEDIATE_TYPE_START___)
+            size = (5 <= size && size <= 7) ? 8 : (size == 3) ? 4 : size;
 
-    free(ax_str);
+        if (src.type < ___IMMEDIATE_TYPE_START___){
+            char* dst_str;
+            char* src_str;
+            size_t offset = 0;
+
+            if (size >= 5){
+                dst_str = strdup(codegen_val(dst, 4));
+                src_str = strdup(codegen_val(src, 8));
+                fprintf(asm_file,
+                "movl %s, %s\n"
+                "shrq $32, %s\n",
+                codegen_val(src, 4), dst_str, src_str);
+
+                free(dst_str);
+                free(src_str);
+
+                size -= 4;
+
+                offset = 4;
+            }
+
+            if (size == 3){
+                src_str = strdup(codegen_val(src, 8));
+                char* src_str_short = strdup(codegen_val(src, 2));
+                char* src_str_byte = strdup(codegen_val(src, 1));
+                dst_str = strdup(codegen_val(get_val_offset(dst, offset), 2));
+
+                fprintf(asm_file,
+                "movw %s, %s\n"
+                "shrq $16, %s\n"
+                "movb %s, %s\n",
+                src_str_short, dst_str, src_str, src_str_byte, codegen_val(get_val_offset(dst, offset + 2), 1));
+
+                free(src_str);
+                free(dst_str);
+                free(src_str_short);
+                free(src_str_byte);
+
+                size -= 3;
+            } else
+            if (size == 2){
+                src_str = strdup(codegen_val(src, 2));                    
+                
+                fprintf(asm_file,
+                "movw %s, %s\n",
+                src_str, codegen_val(get_val_offset(dst, offset), 2));
+
+                free(src_str);
+
+                size -= 2;
+            }
+            else {
+                src_str = strdup(codegen_val(src, 1));
+                fprintf(asm_file,
+                "movb %s, %s\n",
+                src_str, codegen_val(get_val_offset(dst, offset), 1));
+                free(src_str);
+
+                --size;
+            }
+        }
+
+        size_t begin_size = size;
+
+        char* src_str;
+
+        for (; size >= 8; size -= 8){
+            src_str = strdup(codegen_val(get_val_offset(src, begin_size - size), 8));
+            char* dst_str = (char*)codegen_val(get_val_offset(dst, begin_size - size), 8);
+            fprintf(asm_file,
+            "movq %s, %%r10\n"
+            "movq %%r10, %s\n",
+            src_str, dst_str);
+            free(src_str);
+        }
+
+        if (size >= 4){
+            src_str = strdup(codegen_val(get_val_offset(src, begin_size - size), 4));
+            fprintf(asm_file,
+            "movl %s, %%r10d\n"
+            "movl %%r10d, %s\n",
+            src_str, codegen_val(get_val_offset(dst, begin_size - size), 4));
+            free(src_str);
+            size -= 4;
+        }
+
+        if (size >= 2){
+            src_str = strdup(codegen_val(get_val_offset(src, begin_size - size), 2));
+            fprintf(asm_file,
+            "movw %s, %%r10w\n"
+            "movw %%r10w, %s\n",
+            src_str, codegen_val(get_val_offset(dst, begin_size - size), 2));
+            free(src_str);
+            size -= 2;
+        }
+
+        if (size){
+            src_str = strdup(codegen_val(get_val_offset(src, begin_size - size), 1));
+            fprintf(asm_file,
+            "movb %s, %%r10b\n"
+            "movb %%r10b, %s\n",
+            src_str, codegen_val(get_val_offset(dst, begin_size - size), 1));
+            free(src_str);
+        }
+    }
 }
 
 void codegen_binary(const char* inst, ir_operand_t a, ir_operand_t b, ir_operand_t dst, size_t size){
@@ -242,24 +370,54 @@ void codegen_binary(const char* inst, ir_operand_t a, ir_operand_t b, ir_operand
     }
     else {
         if (b.type > ___LVALUE_TYPE_START___ && a.type > ___LVALUE_TYPE_START___){
-            codegen_mov(b, (ir_operand_t){.type = REG_R10}, size);
+            codegen_mov(a, (ir_operand_t){.type = REG_R10}, size);
 
             char* str = strdup(codegen_val((ir_operand_t){.type = REG_R10}, size));
 
             fprintf(asm_file,
             "%s%c %s, %s\n",
-            inst, inst_suffix, str, codegen_val(a, size));
+            inst, inst_suffix, codegen_val(b, size), str);
 
             free(str);
         }
+        /* this is only used for cmp instructions, so the order of the operands matter */
         else {
             static char b_val_str[4096];
 
             strncpy(b_val_str, codegen_val(b, size), 4096);
 
-            fprintf(asm_file,
-            "%s%c %s, %s\n",
-            inst, inst_suffix, b_val_str, codegen_val(a, size));
+            if (b.type > ___LVALUE_TYPE_START___){
+                codegen_mov(a, (ir_operand_t){.type = REG_R10}, size);
+
+                char* r10_str = strdup(codegen_val((ir_operand_t){.type = REG_R10}, size));
+
+                fprintf(asm_file,
+                "%s%c %s, %s\n",
+                inst, inst_suffix, codegen_val(b, size), r10_str);
+
+                free(r10_str);
+            }
+            else {
+                fprintf(asm_file,
+                "pushq %%r12\n");
+
+                codegen_mov(b, (ir_operand_t){.type = REG_R12}, size);
+
+                b.type = REG_R12;
+
+                codegen_mov(a, (ir_operand_t){.type = REG_R10}, size);
+
+                char* r10_str = strdup(codegen_val((ir_operand_t){.type = REG_R10}, size));
+
+                fprintf(asm_file,
+                "%s%c %s, %s\n",
+                inst, inst_suffix, codegen_val(b, size), r10_str);
+
+                fprintf(asm_file,
+                "popq %%r12\n");
+
+                free(r10_str);
+            }
         }
     }
     
@@ -331,9 +489,6 @@ void codegen_node(ir_node_t node){
         }
 
         case INST_RET:{
-            codegen_mov(node.op_1, (ir_operand_t){
-                .type = REG_AX
-            }, node.size);
             fprintf(asm_file,
                 "movq %%rbp, %%rsp\n"
                 "popq %%rbp\n"
@@ -407,6 +562,11 @@ void codegen_node(ir_node_t node){
         }
 
         case INST_DIV: {
+            if (node.op_2.type == REG_AX){
+                codegen_mov(node.op_2, (ir_operand_t){.type = REG_R10}, node.size);
+                node.op_2.type = REG_R10;
+            }
+
             codegen_mov(node.op_1, (ir_operand_t){.type = REG_AX}, node.size);
 
             const char* extend_str = (
@@ -675,7 +835,7 @@ void codegen_node(ir_node_t node){
             ".balign %lu\n"
             ASM_SYMBOL_PREFIX "%s:\n"
             ".%s %lu\n",
-            node.op_2.label_id, node.dst.identifier, asm_static_directive(node.op_2.label_id), node.op_1.immediate);
+            16LU, node.dst.identifier, asm_static_directive(node.op_2.label_id), node.op_1.immediate);
             return;
         }
 
@@ -684,7 +844,7 @@ void codegen_node(ir_node_t node){
             ".balign %lu\n"
             ASM_SYMBOL_PREFIX "%s:\n"
             ".zero %lu\n",
-            (node.op_2.label_id < 16 ? node.op_2.label_id : 16), node.dst.identifier, node.op_2.label_id);
+            16LU, node.dst.identifier, node.op_2.label_id);
             return;
         }
 
@@ -694,7 +854,7 @@ void codegen_node(ir_node_t node){
             ".balign %lu\n"
             ASM_SYMBOL_PREFIX "%s:\n"
             ".%s %lu\n",
-            node.dst.identifier, node.op_2.label_id, node.dst.identifier, asm_static_directive(node.size), node.op_1.immediate);
+            node.dst.identifier, 16LU, node.dst.identifier, asm_static_directive(node.size), node.op_1.immediate);
             return;
         }
 
@@ -704,7 +864,7 @@ void codegen_node(ir_node_t node){
             ".balign %lu\n"
             ASM_SYMBOL_PREFIX "%s:\n"
             ".zero %lu\n",
-            node.dst.identifier, (node.op_2.label_id < 16 ? node.op_2.label_id : 16), node.dst.identifier, node.op_2.label_id);
+            node.dst.identifier, 16LU, node.dst.identifier, node.op_2.label_id);
             return;
         }
 
@@ -714,7 +874,7 @@ void codegen_node(ir_node_t node){
             ASM_SYMBOL_PREFIX ".%lu_%s_%s:\n"
             ".%s %lu\n"
             ".text\n",
-            node.op_2.label_id, func_num, func_name, node.dst.identifier, asm_static_directive(node.op_2.label_id), node.op_1.immediate);
+            16LU, node.size, func_names[node.size], node.dst.identifier, asm_static_directive(node.op_2.label_id), node.op_1.immediate);
             return;
         }
 
@@ -723,7 +883,7 @@ void codegen_node(ir_node_t node){
             ".balign %lu\n"
             ASM_SYMBOL_PREFIX ".%lu_%s_%s:\n"
             ".zero %lu\n",
-            (node.op_2.label_id < 16 ? node.op_2.label_id : 16), func_num, func_name, node.dst.identifier, node.op_2.label_id);
+            16LU, node.size, func_names[node.size], node.dst.identifier, node.op_2.label_id);
             return;
         }
 
@@ -792,6 +952,8 @@ void codegen_node(ir_node_t node){
                     "movl %s, %s\n",
                     str, codegen_val(node.dst, INST_TYPE_QUADWORD));
             }
+
+            free(str);
             
             return;
         }
@@ -812,6 +974,8 @@ void codegen_node(ir_node_t node){
                     "movsbw %s, %s\n",
                     str, codegen_val(node.dst, INST_TYPE_WORDWORD));
             }
+
+            free(str);
             
             return;
         }
@@ -832,6 +996,8 @@ void codegen_node(ir_node_t node){
                     "movzbw %s, %s\n",
                     str, codegen_val(node.dst, INST_TYPE_WORDWORD));
             }
+
+            free(str);
             
             return;
         }
@@ -852,6 +1018,8 @@ void codegen_node(ir_node_t node){
                     "movsbl %s, %s\n",
                     str, codegen_val(node.dst, INST_TYPE_LONGWORD));
             }
+
+            free(str);
             
             return;
         }
@@ -872,6 +1040,7 @@ void codegen_node(ir_node_t node){
                     "movzbl %s, %s\n",
                     str, codegen_val(node.dst, INST_TYPE_LONGWORD));
             }
+            free(str);
             
             return;
         }
@@ -892,6 +1061,8 @@ void codegen_node(ir_node_t node){
                     "movsbq %s, %s\n",
                     str, codegen_val(node.dst, INST_TYPE_QUADWORD));
             }
+
+            free(str);
             
             return;
         }
@@ -912,6 +1083,8 @@ void codegen_node(ir_node_t node){
                     "movzbq %s, %s\n",
                     str, codegen_val(node.dst, INST_TYPE_QUADWORD));
             }
+
+            free(str);
             
             return;
         }
@@ -954,6 +1127,8 @@ void codegen_node(ir_node_t node){
                     "movzwl %s, %s\n",
                     str, codegen_val(node.dst, INST_TYPE_LONGWORD));
             }
+
+            free(str);
             
             return;
         }
@@ -974,6 +1149,8 @@ void codegen_node(ir_node_t node){
                     "movswq %s, %s\n",
                     str, codegen_val(node.dst, INST_TYPE_QUADWORD));
             }
+
+            free(str);
             
             return;
         }
@@ -995,6 +1172,8 @@ void codegen_node(ir_node_t node){
                     str, codegen_val(node.dst, INST_TYPE_QUADWORD));
             }
             
+            free(str);
+
             return;
         }
 
@@ -1083,6 +1262,9 @@ void codegen_node(ir_node_t node){
 
         case INST_SUB_POINTER:
         case INST_ADD_POINTER: {
+            fprintf(asm_file,
+            "pushq %%rdx\n");
+            
             codegen_mov(node.op_1, (ir_operand_t){.type = REG_AX}, 8);
             codegen_mov(node.op_2, (ir_operand_t){.type = REG_DX}, 8);
 
@@ -1110,6 +1292,9 @@ void codegen_node(ir_node_t node){
                 codegen_val(node.dst, 8));
             }
 
+            fprintf(asm_file,
+            "popq %%rdx\n");
+
             return;
         }
 
@@ -1121,16 +1306,9 @@ void codegen_node(ir_node_t node){
                 node.dst.identifier);
 
             fprintf(asm_file,
-            ASM_SYMBOL_PREFIX "%s:\n",
+            ASM_SYMBOL_PREFIX "%s:\n"
+            ".balign 16\n",
             node.dst.identifier);
-
-            if (node.op_1.label_id < 16)
-                fprintf(asm_file, 
-                ".balign %lu\n", 
-                node.op_2.label_id);
-            else
-                fprintf(asm_file, 
-                ".balign 16\n");
 
             return;
         }
@@ -1146,7 +1324,7 @@ void codegen_node(ir_node_t node){
         case INST_STATIC_ARRAY_LOCAL: {
             fprintf(asm_file,
             ASM_SYMBOL_PREFIX ".%lu_%s_%s:\n",
-            func_num, func_name, node.dst.identifier);
+            node.size, func_names[node.size], node.dst.identifier);
 
             if (node.op_1.label_id < 16)
                 fprintf(asm_file, 
@@ -1183,9 +1361,14 @@ void codegen_node(ir_node_t node){
                         case '\"':
                             fprintf(asm_file, "\\\"");
                             break;
-                        case '\?':
-                            fprintf(asm_file, "\\?");
+                        case '\?': {
+                            #ifdef __APPLE__
+                                fprintf(asm_file, "?");
+                            #else
+                                fprintf(asm_file, "\\?");    
+                            #endif
                             break;
+                        }
                         case '\a':
                             fprintf(asm_file, "\\a");
                             break;
@@ -1245,7 +1428,7 @@ void codegen_node(ir_node_t node){
             ".balign 8\n"
             ".quad .string_%4$lu\n"
             ,
-            node.dst.identifier, func_num, func_name, node.op_1.label_id);
+            node.dst.identifier, node.size, func_names[node.size], node.op_1.label_id);
 
             return;
         }
@@ -1284,8 +1467,79 @@ void codegen_node(ir_node_t node){
             return;
         }
 
+        case INST_COPY_FROM_OFFSET: {
+            if (node.op_1.type == STK_OFFSET){
+                if (node.dst.type > ___LVALUE_TYPE_START___){
+                    char* r11_str = strdup(codegen_val((ir_operand_t){.type = REG_R11}, node.size));
+                    fprintf(asm_file,
+                    "mov%1$c %2$ld(%%rbp), %3$s\n"
+                    "mov%1$c %3$s, %4$s\n",
+                    asm_inst_prefix(node.size), (signed long)node.op_2.immediate + node.op_1.offset, r11_str, codegen_val(node.dst, node.size));
+                    free(r11_str);
+                }
+                else
+                    fprintf(asm_file,
+                    "mov%1$c %2$ld(%%rbp), %3$s\n",
+                    asm_inst_prefix(node.size), (signed long)node.op_2.immediate + node.op_1.offset, codegen_val(node.dst, node.size));
+            }
+            else {
+                fprintf(asm_file,
+                "lea %s, %%r11\n",
+                codegen_val(node.op_1, node.size));
+
+                if (node.dst.type > ___LVALUE_TYPE_START___){
+                    char* r11_str = strdup(codegen_val((ir_operand_t){.type = REG_R11}, node.size));
+                    fprintf(asm_file,
+                    "mov%1$c %2$lu(%%r11), %3$s\n"
+                    "mov%1$c %3$s, %4$s\n",
+                    asm_inst_prefix(node.size), node.op_2.immediate, r11_str, codegen_val(node.dst, node.size));
+                    free(r11_str);
+                }
+                else
+                    fprintf(asm_file,
+                    "mov%1$c %2$lu(%%r11), %3$s\n",
+                    asm_inst_prefix(node.size), node.op_2.immediate, codegen_val(node.dst, node.size));
+            }
+            return;
+        }
+
+        case INST_COPY_TO_OFFSET: {
+            fprintf(asm_file,
+            "pushq %%r12\n"
+            "lea %s, %%r12\n",
+            codegen_val(node.dst, node.size));
+
+            if (node.op_1.type > ___LVALUE_TYPE_START___){
+                char* r10_str = strdup(codegen_val((ir_operand_t){.type = REG_R10}, node.size));
+                fprintf(asm_file,
+                "mov%1$c %2$s, %3$s\n"
+                "mov%1$c %3$s, %4$lu(%%r12)\n",
+                asm_inst_prefix(node.size), codegen_val(node.op_1, node.size), r10_str, node.op_2.immediate);
+
+                free(r10_str);
+            }
+            else
+                fprintf(asm_file,
+                "mov%1$c %2$s, %3$lu(%%r12)\n",
+                asm_inst_prefix(node.size), codegen_val(node.op_1, node.size), node.op_2.immediate);
+
+            fprintf(asm_file,
+            "popq %%r12\n");
+
+            return;
+        }
+
+        case INST_ZERO: {
+            fprintf(asm_file,
+            ".zero %lu\n",
+            node.op_1.label_id
+            );
+
+            return;
+        }
+
         default: {
-            fprintf(stderr, "Unknown instruction %d\n", node.instruction);
+            fprintf(stderr, "Unknown instruction: %d\n", node.instruction);
             exit(-1);
         }
 

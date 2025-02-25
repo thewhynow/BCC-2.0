@@ -60,7 +60,16 @@ bool is_constant(node_t* node){
             if (!is_constant(node->array_literal_node.elems + i))
                 return false;
         return true;
-    } 
+    } else
+    if (node->type == NOD_STRUCTURE_LITERAL){
+        for (size_t i = 0; i < get_count_array(node->struct_literal_node.values); ++i)
+            if (!is_constant(node->struct_literal_node.values + i))
+                return false;
+        return true;
+    } else
+    if (node->type == NOD_TYPE_CAST){
+        return is_constant(node->type_cast_node.src);
+    }
     else
         return node->type == NOD_REFERENCE && node->unary_node.value->type == NOD_STRING_LITERAL;
 }
@@ -175,7 +184,7 @@ void typecheck_node(node_t* node){
 
         case NOD_CHAR: {
             node->d_type = (data_type_t){
-                .base_type = TYPE_INT,
+                .base_type = TYPE_CHAR,
                 .storage_class = STORAGE_NULL
             };
             return;
@@ -404,7 +413,9 @@ void typecheck_node(node_t* node){
             typecheck_node(node->static_init_node.value);
 
             if (node->static_init_node.value->type == NOD_ARRAY_LITERAL || node->static_init_node.value->type == NOD_STRING_LITERAL)
-                node->type = NOD_STATIC_ARRAY_INIT;
+                node->type = NOD_STATIC_ARRAY_INIT; else
+            if (node->static_init_node.value->type == NOD_STRUCTURE_LITERAL)
+                node->type = NOD_STATIC_STRUCT_INIT;
 
             if (!type_comp(&node->static_init_node.value->d_type, &node->static_init_node.sym_info.data_type, false, true, false))
                 typecheck_error("cannot assign type B to type A");
@@ -462,6 +473,9 @@ void typecheck_node(node_t* node){
             else
                 typecheck_error("cannot assign expression of type A to expression of type B");
 
+            if (node->assign_node.source->type == NOD_STRUCTURE_LITERAL)
+                node->type = NOD_INIT_STRUCTURE;
+
             return;
         }
 
@@ -501,7 +515,7 @@ void typecheck_node(node_t* node){
         }
 
         case NOD_SWITCH_CASE: {
-            typecheck_node(node->unary_node.value);
+            
             node->d_type = (data_type_t){0};
             return;
         }
@@ -643,16 +657,7 @@ void typecheck_node(node_t* node){
                 typecheck_node(node->binary_node.value_a);
             }
 
-            node->type = NOD_ADD_POINTER;
-
-            node->d_type = clone_data_t(node->binary_node.value_a->d_type);
-
-            *node = (node_t){
-                .type = NOD_DEREFERENCE,
-                .unary_node.value = make_node(*node)
-            };
-
-            node->d_type = clone_data_t(*node->unary_node.value->binary_node.value_a->d_type.ptr_derived_type);
+            node->d_type = clone_data_t(*node->binary_node.value_a->d_type.ptr_derived_type);
 
             return;
         }
@@ -698,6 +703,78 @@ void typecheck_node(node_t* node){
             return;
         }
 
+        case NOD_STRUCTURE_MEMBER_ACCESS: {
+            typecheck_node(node->member_access_node._struct);
+
+            if (node->member_access_node._struct->d_type.base_type != TYPE_STRUCT)
+                typecheck_error("attempt to access member of non-struct type");
+
+            symbol_t* struct_data = find_symbol(global_scope, (symbol_t){
+                .name = node->member_access_node._struct->d_type.struct_tag,
+                .symbol_type = SYM_STRUCTURE
+            }, NULL, NULL);
+
+            for (size_t i = 0; i < get_count_array(struct_data->args); ++i)
+                if (!strcmp(struct_data->args[i].name, node->member_access_node.member)){
+                    node->d_type = clone_data_t(struct_data->args[i].data_type);
+                    return;
+                }
+
+            typecheck_error("attempt to access non-existent struct member");
+        }
+
+        case NOD_STRUCTURE_POINTER_MEMBER_ACCESS: {
+            typecheck_node(node->member_access_node._struct);
+
+            if (node->member_access_node._struct->d_type.base_type != TYPE_POINTER)
+                typecheck_error("cannot use '->' operator on non-pointer object");
+
+            if (node->member_access_node._struct->d_type.ptr_derived_type->base_type != TYPE_STRUCT)
+                typecheck_error("cannot use '->' operator on pointer to non-struct object");
+
+            symbol_t* struct_data = find_symbol(global_scope, (symbol_t){
+                .name = node->member_access_node._struct->d_type.ptr_derived_type->struct_tag,
+                .symbol_type = SYM_STRUCTURE
+            }, NULL, NULL);
+
+            for (size_t i = 0; i < get_count_array(struct_data->args); ++i)
+                if (!strcmp(struct_data->args[i].name, node->member_access_node.member)){
+                    node->d_type = clone_data_t(struct_data->args[i].data_type);
+                    return;
+                }
+
+            typecheck_error("attempt to access non-existent struct member");
+        }
+
+        case NOD_STRUCTURE_LITERAL: {
+            symbol_t* struct_type = find_symbol(global_scope, (symbol_t){
+                .name = node->struct_literal_node.struct_tag,
+                .symbol_type = SYM_STRUCTURE
+            }, NULL, NULL);
+
+            for (size_t i = 0; i < get_count_array(node->struct_literal_node.members); ++i){
+                typecheck_node(node->struct_literal_node.values + i);
+                for (size_t mem_num = 0; mem_num < get_count_array(struct_type->struct_members); ++mem_num)
+                    if (!strcmp(struct_type->struct_members[mem_num].name, node->struct_literal_node.members[i])){
+                        array_pointer_decay(node->struct_literal_node.values + i, &struct_type->struct_members[mem_num].data_type);
+                        if (!type_comp(&node->struct_literal_node.values[i].d_type, &struct_type->struct_members[mem_num].data_type, false, true, false))
+                            typecheck_error("mismatching struct member type");
+                        goto member_found;
+                    }
+                typecheck_error("tried to initialize non-existent struct member");
+                member_found:;
+            }
+
+            node->d_type = (data_type_t){
+                .base_type = TYPE_STRUCT,
+                .struct_tag = node->struct_literal_node.struct_tag
+            };
+
+            return;
+        }
+
+        case NOD_DEFAULT_CASE:
+        case NOD_BREAK:
         case NOD_LABEL: {
             return;
         }

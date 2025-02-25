@@ -13,6 +13,10 @@ void srand(unsigned int __seed);
 /* generates a pusedo-random integer */
 int rand();
 
+/*
+*   use FILE* as void* to save memory while compiling
+*/
+
 /* opens a STREAM */
 void* fopen(const char* restrict path, const char* restrict mode);
 
@@ -45,3 +49,51 @@ void *memcpy(void *restrict __dest, const void *restrict __src, unsigned long __
 
 /* reads formatted input from stdin */
 int scanf(const char* restrict format, ...);
+
+/* returns # bytes to NULL byte from ptr */
+unsigned long strlen(const char* buff);
+
+/* converts a string to an int */
+int atoi(const char* buff);
+
+#define NULL ((void*)0)
+
+#define true (1)
+#define false (0)
+
+extern void* stdin;
+extern void* stdout;
+extern void* stderr;
+
+#define stdin stdin
+#define stdout stdout
+#define stderr stderr
+
+typedef unsigned long size_t;
+
+typedef unsigned long uint64_t;
+typedef unsigned int uint32_t;
+typedef unsigned short uint16_t;
+typedef unsigned char uint8_t;
+
+typedef long int64_t;
+typedef int int32_t;
+typedef short int16_t;
+typedef char int8_t;
+
+/* prints a newline-terminated string to stdout */
+int puts(const char* str);
+
+int fseek(void*__stream, long __off, int __whence);
+
+void rewind(void*__stream);
+
+size_t fread(void* restrict __ptr, size_t __size, size_t __n, void* restrict __stream);
+
+char *strncpy(char* restrict __dest, const char* restrict __src, size_t __n);
+
+int strncmp(const char* __s1, const char* __s2, size_t __n);
+
+long ftell(void*__stream);
+
+char* strdup(char* str);

@@ -6,7 +6,10 @@
 
 #include "../lib/vector/C_vector.h"
 
-#include <inttypes.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdbool.h>
 
 token_t* lex(const char* fpath);
 

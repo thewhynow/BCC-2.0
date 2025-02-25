@@ -1,20 +1,4 @@
 #include "lexer.h"
-#include <stdio.h>
-#include <unistd.h>
-#include <string.h>
-#include <stdbool.h>
-
-#ifdef _WIN32
-# include <Windows.h>
-static inline size_t getpagesize(){
-    SYSTEM_INFO si;
-    GetSystemInfo(&si);
-    return si.dwPageSize;
-}
-#else
-# include <unistd.h> // sysconf(3)
-# define getpagesize() sysconf(_SC_PAGE_SIZE)
-#endif
 
 /* return TOK_NULL (0) on false */
 token_type_t is_keyword(const char* str, size_t* increment_counter);
@@ -23,14 +7,14 @@ char** all_identifier_strings;
 
 token_t* lex(const char* fpath){
     /* neat little trick i learned. the '+' indicates to only open an existing file */
-    FILE* c_file = fopen(fpath, "r+");
+    void* c_file = fopen(fpath, "r+");
 
     if (!c_file){
         fprintf(stderr, "%s: Unable to open file", fpath);
         exit(-1);
     }
 
-    fseek(c_file, 0, SEEK_END);
+    fseek(c_file, 0, 2);
 
     long file_len = ftell(c_file);
 
@@ -206,6 +190,14 @@ token_t* lex(const char* fpath){
                 if ((i < (line_str_len - 1)) && (line_str[i + 1] == '=')) {
                     token = (token_t){
                         .type = TOK_SUB_ASSIGN,
+                        .line = line_count
+                    };
+                    pback_array(&tok_vec, &token);
+                    ++i;
+                } else
+                if ((i < (line_str_len - 1)) && (line_str[i + 1] == '>')) {
+                    token = (token_t){
+                        .type = TOK_ARROW,
                         .line = line_count
                     };
                     pback_array(&tok_vec, &token);
@@ -842,6 +834,14 @@ token_type_t is_keyword(const char* str, size_t* increment_counter){
     if (!keyword_strcmp("sizeof", str, 6)){
         *increment_counter += 5;
         return KEYW_sizeof;
+    } else
+    if (!keyword_strcmp("struct", str, 6)){
+        *increment_counter += 5;
+        return KEYW_struct;
+    } else
+    if (!keyword_strcmp("typedef", str, 7)){
+        *increment_counter += 6;
+        return KEYW_typedef;
     }
     else
         return TOK_NULL;

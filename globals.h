@@ -114,6 +114,9 @@
         KEYW_signed,
         KEYW_void,
         KEYW_sizeof,
+        KEYW_struct,
+        KEYW_typedef,
+        KEYW_union,
     } token_type_t;
 
     typedef struct {
@@ -209,6 +212,11 @@
         NOD_STRING_LITERAL,
         NOD_SIZEOF_EXPR,
         NOD_SIZEOF_TYPE,
+        NOD_STRUCTURE_MEMBER_ACCESS,
+        NOD_STRUCTURE_POINTER_MEMBER_ACCESS,
+        NOD_STRUCTURE_LITERAL,
+        NOD_INIT_STRUCTURE,
+        NOD_STATIC_STRUCT_INIT,
         /* not implemented yet */
         NOD_POST_DECREMENT,
         /* not implemented yet */
@@ -232,6 +240,9 @@
         TYPE_ARRAY,
         TYPE_FUNCTION_POINTER,
         TYPE_VARIADIC, /* used as placeholder for '...' */
+        TYPE_STRUCT,
+        TYPE_UNION,
+        TYPE_TYPEDEF, /* used as placeholder for 'typedef' */
     } base_type_t;
 
     typedef enum {
@@ -253,6 +264,8 @@
         union {
             size_t array_size;
             data_type_t* func_return_type;
+            char* struct_tag;
+            char* union_tag;
         };
     };
 
@@ -285,6 +298,8 @@
     typedef enum {
         SYM_FUNCTION,
         SYM_VARIABLE,
+        SYM_STRUCTURE,
+        SYM_TYPEDEF,
     } symbol_type_t;
 
     typedef struct symbol_t symbol_t;    
@@ -296,7 +311,10 @@
         * optional - only used for runction declarations 
         * i dont wanna do more than that man gimme a break
         */
-        symbol_t* args;
+        union {
+            symbol_t* args;
+            symbol_t* struct_members;
+        };
         /* optional - only used for static memory objects */
         bool init;
     };
@@ -404,6 +422,22 @@
         data_type_t d_type;
     } nod_sizeof_type_t;
 
+    typedef struct {
+        node_t* _struct;
+        char* member;
+    } nod_struct_member_access_t;
+
+    typedef struct {
+        char** members;
+        node_t* values;
+        char* struct_tag;
+    } nod_struct_literal_t;
+
+    typedef struct {
+        var_info_t struct_var;
+        node_t* literal;
+    } nod_struct_init_t;
+
     struct node_t {
         node_type_t type;
         union {
@@ -427,6 +461,9 @@
             nod_array_literal_t array_literal_node;
             nod_array_init_t array_init_node;
             nod_sizeof_type_t sizeof_type_node;
+            nod_struct_member_access_t member_access_node;
+            nod_struct_literal_t struct_literal_node;
+            nod_struct_init_t struct_init_node;
         };
         /* used for type-annotating the AST */
         data_type_t d_type;
@@ -522,7 +559,7 @@ typedef enum {                  /* dst, op_1, op_2 */
     INST_ADD_POINTER,           /* dst, ptr, index */
     INST_SUB_POINTER,           /* dst, ptr, index */
     /* static array related instructions */
-    INST_STATIC_ARRAY_PUBLIC,   /* identifier, size, elem_size */ 
+    INST_STATIC_ARRAY_PUBLIC,   /* identifier, size, elem_size */
     INST_STATIC_ARRAY_LOCAL,    /* identifier, size, elem_size */
     INST_STATIC_ARRAY,          /* identifier, size, elem_size */ 
     INST_STATIC_ELEM,           /* NULL, val, size */
@@ -531,6 +568,16 @@ typedef enum {                  /* dst, op_1, op_2 */
     INST_STATIC_STRING_P,       /* identifier, id, NULL */
     INST_STATIC_STRING_P_PUBLIC,/* identifier, id, NULL */
     INST_STATIC_STRING_P_LOCAL, /* identifier, id, NULL */
+    /* structure related instructions */
+    INST_COPY_TO_OFFSET,        /* dst, src, offset */
+    INST_COPY_FROM_OFFSET,      /* dst, src, offset */
+    /* static structure literal instructions */
+    INST_ZERO,                  /* NULL, size, NULL */
+    INST_STATIC_STRUCT_PUBLIC,  /* identifier, size, NULL */
+    INST_STATIC_STRUCT_LOCAL,   /* identifier, size, NULL */
+    INST_STATIC_STRUCT,         /* identifier, size, NULL */
+    /* et. cetera */
+    INST_GLOBAL_DIRECTIVE,      /* identifier, NULL, NULL */
 } ir_inst_t;
 
 typedef enum {
@@ -560,10 +607,13 @@ typedef enum {
     STK_OFFSET,
     STATIC_MEM,
     STATIC_MEM_LOCAL,
-    MEM_ADDRESS, /* always uses %rax */
+    MEM_ADDRESS, /* (%r11) */
     STRING,      /* .string_<lu> */
     STRING_ADDRESS, /* a seperate value because is printed ... slightly differently */
     FUNCTION,
+    STATIC_MEM_OFFSET,
+    STATIC_MEM_LOCAL_OFFSET,
+    MEM_ADDRESS_OFFSET,
 } operand_t;
 
 #define is_immediate(operand_type) (((operand_type) > ___IMMEDIATE_TYPE_START___) && ((operand_type) < ___LVALUE_TYPE_START___))
@@ -576,6 +626,7 @@ typedef struct {
         char* identifier;
         size_t label_id;
     };
+    signed long secondary_offset;
 } ir_operand_t;
 
 typedef enum {

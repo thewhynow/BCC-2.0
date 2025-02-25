@@ -1,55 +1,27 @@
-#include "lib/my_stdlib.h"
+int printf(const char* restrict __fmt, ...);
 
-void* alloc_array(unsigned long elem_size, unsigned long size){
-    void* buff = malloc(24LU + elem_size * size);
-    unsigned long* size_p = (unsigned long*) buff;
-    *size_p = size;
-    *(size_p + 1LU) = 0LU;
-    *(size_p + 2LU) = elem_size;
+typedef struct {
+    int a;
+    char c[3];
+    int b;
+} tri;
 
-    return size_p + 3LU;
+int add_pair(tri p);
+
+typedef struct {
+    char elem[7];
+} three;
+
+void print_three(three t){
+    printf("%s\n", t.elem);
 }
 
-void free_array(void* array, void(*destructor)(void*)){
-    if (destructor) {
-        unsigned long* count = (unsigned long*)array - 2LU;
-        unsigned long* elem_size = count + 1LU;
-        for (unsigned long i = 0LU; i < *count; ++i)
-            destructor((char*)array + (*elem_size * i));
-    }
-
-    free((unsigned long*)array - 3LU);
-}
-
-void pback_array(void** array, void* val){    
-    unsigned long elem_size = *((unsigned long*) *array - 1LU);
-    unsigned long* count = (unsigned long*)*array - 2LU;
-    unsigned long* size = (unsigned long*)*array - 3LU;
-
-    if (*count == *size) {
-        *size += *size / 2LU + 1LU;
-        *array = realloc(size, 24LU + elem_size * *size) + 24LU;
-        if (*array)
-            count = (unsigned long*)*array - 2LU;
-        else
-            perror("ran out of memory while allocating array");
-    }
-
-    void* dst = (char*)*array + (*count)++ * elem_size;
-
-    memcpy(dst, val, elem_size);
-}
+tri idk = (tri){
+    .a = 1,
+    .b = 2,
+    .c = {(char)'a', (char)'b', (char)'c'}
+};
 
 int main(){
-    int* a = alloc_array(sizeof(int), 1LU);
-
-    for (int i = 0; i < 10; ++i)
-        pback_array((void**)&a, &i);
-
-    for (unsigned long i = 0LU; i < 10LU; ++i)
-        printf("%i ", a[i]);
-
-    free_array(a, (void*)0);
-
-    putchar('\n');
+    print_three((three){.elem = {(char)'a', (char)'b', (char)'c', (char)'d', (char)'e', (char)'f', (char)0}});
 }

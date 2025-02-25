@@ -58,7 +58,9 @@ void symbol_dstr(void* _symbol){
     if (symbol->data_type.base_type != TYPE_VARIADIC){
         data_t_dstr(&symbol->data_type);
         if (symbol->symbol_type == SYM_FUNCTION)
-            free_array(symbol->args, symbol_dstr); 
+            free_array(symbol->args, symbol_dstr); else
+        if (symbol->symbol_type == SYM_STRUCTURE)
+            free_array(symbol->struct_members, symbol_dstr);
     }
     return;
 }
@@ -199,7 +201,6 @@ node_t parse_top_level(){
         symbol_t parse_declaration(data_type_t d_type);
 
         symbol_t symbol = parse_declaration(d_type);
-
 
         if (symbol.symbol_type == SYM_FUNCTION){
 
@@ -403,7 +404,6 @@ node_t parse_fac(){
                         },
                         .array_init_node.elems = make_node(parse_expr())
                     };
-
                 else
                     return (node_t){
                         .type = NOD_ASSIGN,
@@ -428,8 +428,7 @@ node_t parse_fac(){
     }
     else {
         node_t result;
-        switch(curr_token.type){
-
+        switch(curr_token.type) {
             case TOK_INTEGER: {
                 unsigned int val = curr_token.literals.uint;
                 advance_token();
@@ -633,9 +632,20 @@ node_t parse_fac(){
                                     }   
                                     else
                                         parse_error("can only define array variable with array literal");
+                                } else
+                                if (cast_type.base_type == TYPE_STRUCT){
+                                    node_t parse_struct_literal(data_type_t* struct_type);
+
+                                    node_t literal = parse_struct_literal(&cast_type);
+
+                                    advance_token();
+
+                                    literal.struct_literal_node.struct_tag = cast_type.struct_tag;
+
+                                    return literal;
                                 }
                                 else
-                                    parse_error("only scalar initializers of array type are supported");
+                                    parse_error("can only define compound literal of array/struct type");
                                 
                             }
                             else {
@@ -981,6 +991,8 @@ node_t parse_fac(){
                     advance_token();
                     data_type_t type = parse_type();
                     if (type.base_type){
+                        data_type_t parse_anonymous_declaration(data_type_t d_type);
+                        type = parse_anonymous_declaration(type);
                         if (curr_token.type == TOK_CLOSE_PAREN){
                             advance_token();
                             return (node_t){
@@ -1061,6 +1073,42 @@ node_t parse_fac(){
                         }
                     };
 
+                    break;
+                }
+
+                case TOK_PERIOD: {
+                    advance_token();
+                    if (curr_token.type == TOK_IDENTIFIER){
+                        char* member = curr_token.identifier;
+                        advance_token();
+                        result = (node_t){
+                            .type = NOD_STRUCTURE_MEMBER_ACCESS,
+                            .member_access_node = (nod_struct_member_access_t){
+                                ._struct = make_node(result),
+                                .member = member
+                            }
+                        };
+                    }
+                    else
+                        parse_error("expected identifier");
+                    break;
+                }
+
+                case TOK_ARROW: {
+                    advance_token();
+                    if (curr_token.type == TOK_IDENTIFIER){
+                        char* member = curr_token.identifier;
+                        advance_token();
+                        result = (node_t){
+                            .type = NOD_STRUCTURE_POINTER_MEMBER_ACCESS,
+                            .member_access_node = (nod_struct_member_access_t){
+                                ._struct = make_node(result),
+                                .member = member
+                            }
+                        };
+                    }
+                    else
+                        parse_error("expected identifier");
                     break;
                 }
 
@@ -1655,6 +1703,7 @@ void parse_node_dstr(void* _node){
         case NOD_DEFAULT_CASE:
             return;
 
+        case NOD_STATIC_STRUCT_INIT:
         case NOD_STATIC_ARRAY_INIT:
         case NOD_STATIC_INIT: {
             parse_node_dstr(node->static_init_node.value);
@@ -1690,6 +1739,26 @@ void parse_node_dstr(void* _node){
         case NOD_SIZEOF_TYPE:
             data_t_dstr(&node->sizeof_type_node.d_type);
             return;
+
+        case NOD_STRUCTURE_POINTER_MEMBER_ACCESS:
+        case NOD_STRUCTURE_MEMBER_ACCESS: {
+            parse_node_dstr(node->member_access_node._struct);
+            free(node->member_access_node._struct);
+
+            return;
+        }
+
+        case NOD_STRUCTURE_LITERAL: {
+            free_array(node->struct_literal_node.values, parse_node_dstr);
+            free_array(node->struct_literal_node.members, NULL);
+            return;
+        }
+
+        case NOD_INIT_STRUCTURE: {
+            parse_node_dstr(node->struct_init_node.literal);
+            free(node->struct_init_node.literal);
+            return;
+        }
     }
 }
 
@@ -1752,9 +1821,34 @@ data_type_t parse_anonymous_declaration(data_type_t d_type){
                 d_type = array_type;
 
                 return d_type;
+        } else
+        if (curr_token.type == TOK_OPEN_PAREN){
+            advance_token();
+            if (curr_token.type == TOK_MUL){
+                advance_token();
+                if (curr_token.type == TOK_CLOSE_PAREN){
+                    advance_token();
+                    if (curr_token.type == TOK_OPEN_PAREN){
+                        data_type_t* parse_anonymous_function_args();
+                        data_type_t* args = parse_anonymous_function_args();
+
+                        return (data_type_t){
+                            .base_type = TYPE_FUNCTION_POINTER,
+                            .func_args = args,
+                            .func_return_type = alloc_data_t(d_type)
+                        };
+                    }
+                    else
+                        parse_error("expected '('");
+                }
+                else
+                    parse_error("expected ')'");
+            }
+            else
+                parse_error("expected '*'");
         }
         else
-            parse_error("expected ',' or ')' after anonymous declaration");
+            parse_error("expected ',' or ')' or '(' after anonymous declaration");
         
     MARK_UNREACHABLE_CODE;
 }
@@ -1846,6 +1940,7 @@ symbol_t parse_declaration(data_type_t d_type){
             }
         }
     } else
+    /* function pointer */
     if (curr_token.type == TOK_OPEN_PAREN){
         advance_token();
         if (curr_token.type == TOK_MUL){
@@ -1881,9 +1976,40 @@ symbol_t parse_declaration(data_type_t d_type){
         }
         else
             parse_error("expected '*'");
+    } else
+    /* struct */
+    if (curr_token.type == TOK_OPEN_BRACE){
+        if (d_type.base_type == TYPE_STRUCT){
+            advance_token();
+            symbol_t* parse_struct_declaration();
+            return (symbol_t){
+                .name = d_type.struct_tag,
+                .init = false,
+                .symbol_type = SYM_STRUCTURE,
+                .data_type = d_type,
+                .struct_members = parse_struct_declaration()
+            };
+        }
+        else
+            parse_error("did not expect '{' after non-struct declaration");
+    } else
+    /* typedef */
+    if (curr_token.type == KEYW_typedef){
+        advance_token();
+        data_type_t parse_type();
+        data_type_t d_type = parse_type();
+        if (d_type.base_type){
+            if (curr_token.type == TOK_IDENTIFIER){
+                symbol_t symbol = parse_declaration(d_type);
+                symbol.symbol_type = SYM_TYPEDEF;
+                return symbol;
+            }
+            else
+                parse_error("expected identifier");
+        }
+        else
+            parse_error("expected typename");
     }
-    else
-        parse_error("expected identifier");
 
     MARK_UNREACHABLE_CODE;
 }
@@ -2007,6 +2133,74 @@ data_type_t parse_type(){
                 }
                 else
                     parse_error("stray 'void' in declaration");
+            }
+
+            case KEYW_struct: {
+                if (!result.base_type){
+                    advance_token();
+                    if (curr_token.type == TOK_IDENTIFIER){
+                        result.base_type = TYPE_STRUCT;
+                        result.struct_tag = curr_token.identifier;
+                        advance_token();
+                    } else
+                    if (curr_token.type == TOK_OPEN_BRACE){
+                        advance_token();
+                        
+                        static size_t unamed_struct_count = 0;
+
+                        static char unamed_struct_buff[4096];
+
+                        snprintf(unamed_struct_buff, 4096, ".unamed_struct_%lu\n", unamed_struct_count++);
+
+                        char* unamed_struct_str = strdup(unamed_struct_buff);
+
+                        extern char** all_identifier_strings;
+
+                        pback_array(&all_identifier_strings, &unamed_struct_str);
+
+                        symbol_t* parse_struct_declaration();
+
+                        symbol_t* struct_elems = parse_struct_declaration();
+
+                        symbol_t struct_sym = (symbol_t){
+                            .data_type.base_type = TYPE_STRUCT,
+                            .name = unamed_struct_str,
+                            .struct_members = struct_elems,
+                            .symbol_type = SYM_STRUCTURE,
+                        };
+                        pback_array(&global_scope->top_scope, &struct_sym);
+
+                        result.base_type = TYPE_STRUCT;
+                        result.struct_tag = unamed_struct_str;
+
+                        break;
+                    }
+                    else
+                        parse_error("expected '{' or identifier after 'struct' keyword");
+                }
+                else
+                    parse_error("cannot include multiple base type specifiers in one type");
+                break;
+            }
+
+            case KEYW_typedef: {
+                result.base_type = TYPE_TYPEDEF;
+                return result;
+            }
+
+            case TOK_IDENTIFIER: {
+                data_type_t clone_data_t(data_type_t src);
+                if (!result.base_type){
+                    symbol_t* symbol = find_symbol(global_scope, (symbol_t){.symbol_type = SYM_TYPEDEF, .name = curr_token.identifier}, NULL, NULL);
+
+                    if (symbol && symbol->symbol_type == SYM_TYPEDEF){
+                        storage_class_t old_storage_class = result.storage_class;
+                        result = clone_data_t(symbol->data_type);
+                        result.storage_class = old_storage_class;
+                        advance_token();
+                        break;
+                    }
+                }
             }
 
             default: {
@@ -2144,7 +2338,7 @@ node_t parse_array_literal(data_type_t type){
     return (node_t){
         .type = NOD_ARRAY_LITERAL,
         .array_literal_node.elems = elems,
-        .array_literal_node.type = clone_data_t(*type.ptr_derived_type)
+        .array_literal_node.type = clone_data_t(type)
     };
 }
 
@@ -2348,6 +2542,7 @@ node_t parse_node_clone(node_t node){
             };
         }
 
+        case NOD_STATIC_STRUCT_INIT:
         case NOD_STATIC_ARRAY_INIT:
         case NOD_STATIC_INIT: {
             return (node_t){
@@ -2407,6 +2602,126 @@ node_t parse_node_clone(node_t node){
                 }
             };
         }
+        
+        case NOD_STRUCTURE_POINTER_MEMBER_ACCESS:
+        case NOD_STRUCTURE_MEMBER_ACCESS: {
+            return (node_t){
+                .type = node.type,
+                .member_access_node._struct = make_node(parse_node_clone(*node.member_access_node._struct)),
+                .member_access_node.member = node.member_access_node.member
+            };
+        }
+
+        case NOD_STRUCTURE_LITERAL: {
+            node_t* values = alloc_array(sizeof(node_t), 1);
+            for (size_t i = 0; i < get_count_array(node.struct_literal_node.values); ++i){
+                node_t elem = parse_node_clone(node.struct_literal_node.values[i]);
+                pback_array(&values, &elem);
+            }
+            return (node_t){
+                .type = NOD_STRUCTURE_LITERAL,
+                .struct_literal_node = (nod_struct_literal_t){
+                    .members = node.struct_literal_node.members,
+                    .values = values
+                }
+            };
+        }
+
+        case NOD_INIT_STRUCTURE: {
+            return (node_t){
+                .type = NOD_INIT_STRUCTURE,
+                .struct_init_node = (nod_struct_init_t){
+                    .literal = make_node(parse_node_clone(*node.struct_init_node.literal))
+                }
+            };
+        }
     }
     MARK_UNREACHABLE_CODE;
+}
+
+symbol_t* parse_struct_declaration(){
+    symbol_t* members = alloc_array(sizeof(symbol_t), 1);
+    symbol_t var;
+
+    while (curr_token.type != TOK_CLOSE_BRACE){
+        data_type_t d_type = parse_type();
+        if (d_type.base_type){
+            var = parse_declaration(d_type);
+            pback_array(&members, &var);
+        }
+        else
+            parse_error("expected typename");
+
+        if (curr_token.type == TOK_SEMICOLON)
+            advance_token();
+        else
+            parse_error("expected ';'");
+    }
+
+    if (curr_token.type == TOK_CLOSE_BRACE)
+        advance_token();
+    else
+        parse_error("expected '}'");
+
+    return members;
+}
+
+/* assumes that curr_token.type == TOK_OPEN_BRACE (beginning of literal)*/
+node_t parse_struct_literal(data_type_t* struct_type){
+    node_t* init_values = alloc_array(sizeof(node_t), 1);
+    char** member_access = alloc_array(sizeof(char*), 1);
+
+    if (curr_token.type == TOK_OPEN_BRACE)
+        advance_token();
+    else
+        parse_error("expected '{' at beginning of struct literal");
+
+    while (curr_token.type != TOK_CLOSE_BRACE){
+        if (curr_token.type == TOK_PERIOD){
+            advance_token();
+            if (curr_token.type == TOK_IDENTIFIER){
+                pback_array(&member_access, &curr_token.identifier);
+                advance_token();
+                if (curr_token.type == TOK_ASSIGN){
+                    advance_token();
+                    node_t value;
+                    /* parsing array literal */
+                    if (curr_token.type == TOK_OPEN_BRACE){
+                        symbol_t* struct_symbol = find_symbol(global_scope, (symbol_t){.symbol_type = SYM_STRUCTURE, .name = struct_type->struct_tag}, NULL, NULL);
+                        size_t mem_num = 0;
+                        for (; mem_num < get_count_array(struct_symbol->struct_members); ++mem_num){
+                            if (!strcmp(struct_symbol->struct_members[mem_num].name, member_access[get_count_array(member_access) - 1])){
+                                value = parse_array_literal(struct_symbol->struct_members[mem_num].data_type);
+                                break;
+                            }
+                        }
+                        if (mem_num == get_count_array(struct_symbol->struct_members))
+                            parse_error("member not found in struct");
+
+                        advance_token();
+                    }
+                    else
+                        value = parse_expr();
+
+                    pback_array(&init_values, &value);
+                    if (curr_token.type == TOK_COMMA)
+                        advance_token();
+                }
+                else
+                    parse_error("expected '='");
+            }
+            else
+                parse_error("expected identifier");
+        }
+        else
+            parse_error("expected '.'");
+    }
+
+    return (node_t){
+        .type = NOD_STRUCTURE_LITERAL,
+        .struct_literal_node = (nod_struct_literal_t){
+            .members = member_access,
+            .values = init_values
+        }
+    };
 }

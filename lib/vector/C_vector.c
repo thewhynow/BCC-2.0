@@ -7,8 +7,9 @@
 #include <stdio.h>
 
 void* alloc_array(size_t elem_size, size_t size){
-    void* buff = malloc(sizeof(size_t) * 3 + elem_size * size);
-    size_t* size_p = (size_t*) buff;
+    size_t* size_p = malloc(sizeof(size_t) * 3 + elem_size * size);
+    if (!size_p)
+        perror("ran out of memory allocating array");
     *size_p = size;
     *(size_p + 1) = 0;
     *(size_p + 2) = elem_size;
