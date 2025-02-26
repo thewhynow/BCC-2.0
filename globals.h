@@ -212,11 +212,18 @@
         NOD_STRING_LITERAL,
         NOD_SIZEOF_EXPR,
         NOD_SIZEOF_TYPE,
+        NOD_MEMBER_ACCESS,
+        NOD_POINTER_MEMBER_ACCESS,
         NOD_STRUCTURE_MEMBER_ACCESS,
         NOD_STRUCTURE_POINTER_MEMBER_ACCESS,
         NOD_STRUCTURE_LITERAL,
         NOD_INIT_STRUCTURE,
         NOD_STATIC_STRUCT_INIT,
+        NOD_UNION_MEMBER_ACCESS,
+        NOD_UNION_POINTER_MEMBER_ACCESS,
+        NOD_UNION_LITERAL,
+        NOD_INIT_UNION,
+        NOD_STATIC_UNION_INIT,
         /* not implemented yet */
         NOD_POST_DECREMENT,
         /* not implemented yet */
@@ -299,6 +306,7 @@
         SYM_FUNCTION,
         SYM_VARIABLE,
         SYM_STRUCTURE,
+        SYM_UNION,
         SYM_TYPEDEF,
     } symbol_type_t;
 
@@ -423,9 +431,9 @@
     } nod_sizeof_type_t;
 
     typedef struct {
-        node_t* _struct;
+        node_t* compound;
         char* member;
-    } nod_struct_member_access_t;
+    } nod_member_access_t;
 
     typedef struct {
         char** members;
@@ -461,7 +469,7 @@
             nod_array_literal_t array_literal_node;
             nod_array_init_t array_init_node;
             nod_sizeof_type_t sizeof_type_node;
-            nod_struct_member_access_t member_access_node;
+            nod_member_access_t member_access_node;
             nod_struct_literal_t struct_literal_node;
             nod_struct_init_t struct_init_node;
         };

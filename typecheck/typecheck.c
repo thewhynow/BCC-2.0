@@ -184,7 +184,7 @@ void typecheck_node(node_t* node){
 
         case NOD_CHAR: {
             node->d_type = (data_type_t){
-                .base_type = TYPE_CHAR,
+                .base_type = TYPE_INT,
                 .storage_class = STORAGE_NULL
             };
             return;
@@ -703,47 +703,73 @@ void typecheck_node(node_t* node){
             return;
         }
 
-        case NOD_STRUCTURE_MEMBER_ACCESS: {
-            typecheck_node(node->member_access_node._struct);
+        case NOD_MEMBER_ACCESS: {
+            typecheck_node(node->member_access_node.compound);
 
-            if (node->member_access_node._struct->d_type.base_type != TYPE_STRUCT)
-                typecheck_error("attempt to access member of non-struct type");
+            symbol_t* data;
 
-            symbol_t* struct_data = find_symbol(global_scope, (symbol_t){
-                .name = node->member_access_node._struct->d_type.struct_tag,
-                .symbol_type = SYM_STRUCTURE
-            }, NULL, NULL);
-
-            for (size_t i = 0; i < get_count_array(struct_data->args); ++i)
-                if (!strcmp(struct_data->args[i].name, node->member_access_node.member)){
-                    node->d_type = clone_data_t(struct_data->args[i].data_type);
+            if (node->member_access_node.compound->d_type.base_type == TYPE_STRUCT){
+                node->type = NOD_STRUCTURE_MEMBER_ACCESS;
+                
+                data = find_symbol(global_scope, (symbol_t){
+                    .name = node->member_access_node.compound->d_type.struct_tag,
+                    .symbol_type = SYM_STRUCTURE
+                }, NULL, NULL);
+            } else
+            if (node->member_access_node.compound->d_type.base_type == TYPE_UNION){
+                node->type = NOD_UNION_MEMBER_ACCESS;
+                
+                data = find_symbol(global_scope, (symbol_t){
+                    .name = node->member_access_node.compound->d_type.struct_tag,
+                    .symbol_type = SYM_UNION
+                }, NULL, NULL);
+            }
+            else
+                typecheck_error("attempt to access member of non-compound type");
+            
+            for (size_t i = 0; i < get_count_array(data->args); ++i)
+                if (!strcmp(data->args[i].name, node->member_access_node.member)){
+                    node->d_type = clone_data_t(data->args[i].data_type);
                     return;
                 }
 
-            typecheck_error("attempt to access non-existent struct member");
+            typecheck_error("attempt to access non-existent struct/union member");
         }
 
-        case NOD_STRUCTURE_POINTER_MEMBER_ACCESS: {
-            typecheck_node(node->member_access_node._struct);
+        case NOD_POINTER_MEMBER_ACCESS: {
+            typecheck_node(node->member_access_node.compound);
 
-            if (node->member_access_node._struct->d_type.base_type != TYPE_POINTER)
+            symbol_t* data = NULL;
+
+            if (node->member_access_node.compound->d_type.base_type != TYPE_POINTER)
                 typecheck_error("cannot use '->' operator on non-pointer object");
 
-            if (node->member_access_node._struct->d_type.ptr_derived_type->base_type != TYPE_STRUCT)
-                typecheck_error("cannot use '->' operator on pointer to non-struct object");
-
-            symbol_t* struct_data = find_symbol(global_scope, (symbol_t){
-                .name = node->member_access_node._struct->d_type.ptr_derived_type->struct_tag,
-                .symbol_type = SYM_STRUCTURE
-            }, NULL, NULL);
-
-            for (size_t i = 0; i < get_count_array(struct_data->args); ++i)
-                if (!strcmp(struct_data->args[i].name, node->member_access_node.member)){
-                    node->d_type = clone_data_t(struct_data->args[i].data_type);
+            if (node->member_access_node.compound->d_type.ptr_derived_type->base_type == TYPE_STRUCT){
+                node->type = NOD_STRUCTURE_POINTER_MEMBER_ACCESS;
+                
+                data = find_symbol(global_scope, (symbol_t){
+                    .name = node->member_access_node.compound->d_type.struct_tag,
+                    .symbol_type = SYM_STRUCTURE
+                }, NULL, NULL);
+            } else
+            if (node->member_access_node.compound->d_type.ptr_derived_type->base_type == TYPE_UNION){
+                node->type = NOD_UNION_POINTER_MEMBER_ACCESS;
+                
+                data = find_symbol(global_scope, (symbol_t){
+                    .name = node->member_access_node.compound->d_type.struct_tag,
+                    .symbol_type = SYM_UNION
+                }, NULL, NULL);
+            }
+            else
+                typecheck_error("attempt to access member of non-compound type");
+            
+            for (size_t i = 0; i < get_count_array(data->args); ++i)
+                if (!strcmp(data->args[i].name, node->member_access_node.member)){
+                    node->d_type = clone_data_t(data->args[i].data_type);
                     return;
                 }
 
-            typecheck_error("attempt to access non-existent struct member");
+            typecheck_error("attempt to access non-existent struct/union member");
         }
 
         case NOD_STRUCTURE_LITERAL: {
@@ -775,7 +801,11 @@ void typecheck_node(node_t* node){
 
         case NOD_DEFAULT_CASE:
         case NOD_BREAK:
-        case NOD_LABEL: {
+        case NOD_LABEL:
+        case NOD_STRUCTURE_MEMBER_ACCESS:
+        case NOD_UNION_MEMBER_ACCESS:
+        case NOD_STRUCTURE_POINTER_MEMBER_ACCESS:
+        case NOD_UNION_POINTER_MEMBER_ACCESS: {
             return;
         }
 

@@ -37,9 +37,3 @@ void pback_array(void** array, void* val){
 
     memcpy((char*)*array + (*count)++ * elem_size, val, elem_size);
 }
-
-#define get_size_array(array) (*((unsigned long*)(array) - 3))
-
-#define get_count_array(array) (*((unsigned long*)(array) - 2))
-
-#define get_elem_size_array(array) (*((unsigned long*)(array) - 1))

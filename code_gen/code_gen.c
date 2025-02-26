@@ -232,7 +232,7 @@ void codegen_mov(ir_operand_t src, ir_operand_t dst, size_t size){
         if (dst.type  < ___IMMEDIATE_TYPE_START___)
             size = (5 <= size && size <= 7) ? 8 : (size == 3) ? 4 : size;
 
-        if (src.type < ___IMMEDIATE_TYPE_START___){
+        if (((5 <= size && size <= 7) || size == 3) && src.type < ___IMMEDIATE_TYPE_START___){
             char* dst_str;
             char* src_str;
             size_t offset = 0;
@@ -505,6 +505,8 @@ void codegen_node(ir_node_t node){
             "neg%1$c %2$s\n"
             "mov%1$c %2$s, %3$s\n",
             asm_inst_prefix(node.size), str, codegen_val(node.dst, node.size));
+            
+            free(str);
             return;
         }
 

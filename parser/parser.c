@@ -59,7 +59,7 @@ void symbol_dstr(void* _symbol){
         data_t_dstr(&symbol->data_type);
         if (symbol->symbol_type == SYM_FUNCTION)
             free_array(symbol->args, symbol_dstr); else
-        if (symbol->symbol_type == SYM_STRUCTURE)
+        if (symbol->symbol_type == SYM_STRUCTURE || symbol->symbol_type == SYM_UNION)
             free_array(symbol->struct_members, symbol_dstr);
     }
     return;
@@ -1082,9 +1082,9 @@ node_t parse_fac(){
                         char* member = curr_token.identifier;
                         advance_token();
                         result = (node_t){
-                            .type = NOD_STRUCTURE_MEMBER_ACCESS,
-                            .member_access_node = (nod_struct_member_access_t){
-                                ._struct = make_node(result),
+                            .type = NOD_MEMBER_ACCESS,
+                            .member_access_node = (nod_member_access_t){
+                                .compound = make_node(result),
                                 .member = member
                             }
                         };
@@ -1100,9 +1100,9 @@ node_t parse_fac(){
                         char* member = curr_token.identifier;
                         advance_token();
                         result = (node_t){
-                            .type = NOD_STRUCTURE_POINTER_MEMBER_ACCESS,
-                            .member_access_node = (nod_struct_member_access_t){
-                                ._struct = make_node(result),
+                            .type = NOD_POINTER_MEMBER_ACCESS,
+                            .member_access_node = (nod_member_access_t){
+                                .compound = make_node(result),
                                 .member = member
                             }
                         };
@@ -1740,10 +1740,14 @@ void parse_node_dstr(void* _node){
             data_t_dstr(&node->sizeof_type_node.d_type);
             return;
 
+        case NOD_MEMBER_ACCESS:
+        case NOD_POINTER_MEMBER_ACCESS:
+        case NOD_UNION_MEMBER_ACCESS:
+        case NOD_UNION_POINTER_MEMBER_ACCESS:
         case NOD_STRUCTURE_POINTER_MEMBER_ACCESS:
         case NOD_STRUCTURE_MEMBER_ACCESS: {
-            parse_node_dstr(node->member_access_node._struct);
-            free(node->member_access_node._struct);
+            parse_node_dstr(node->member_access_node.compound);
+            free(node->member_access_node.compound);
 
             return;
         }
@@ -1755,8 +1759,10 @@ void parse_node_dstr(void* _node){
         }
 
         case NOD_INIT_STRUCTURE: {
-            parse_node_dstr(node->struct_init_node.literal);
-            free(node->struct_init_node.literal);
+            parse_node_dstr(node->assign_node.source);
+            free(node->assign_node.source);
+            parse_node_dstr(node->assign_node.destination);
+            free(node->assign_node.destination);
             return;
         }
     }
@@ -1989,9 +1995,18 @@ symbol_t parse_declaration(data_type_t d_type){
                 .data_type = d_type,
                 .struct_members = parse_struct_declaration()
             };
+        } else
+        if (d_type.base_type == TYPE_UNION){
+            advance_token();
+            symbol_t* parse_struct_declaration();
+            return (symbol_t){
+                .name = d_type.union_tag,
+                .init = false,
+                .symbol_type = SYM_UNION,
+                .data_type = d_type,
+                .struct_members = parse_struct_declaration()
+            };
         }
-        else
-            parse_error("did not expect '{' after non-struct declaration");
     } else
     /* typedef */
     if (curr_token.type == KEYW_typedef){
@@ -2150,7 +2165,7 @@ data_type_t parse_type(){
 
                         static char unamed_struct_buff[4096];
 
-                        snprintf(unamed_struct_buff, 4096, ".unamed_struct_%lu\n", unamed_struct_count++);
+                        snprintf(unamed_struct_buff, 4096, ".unamed_struct_%lu", unamed_struct_count++);
 
                         char* unamed_struct_str = strdup(unamed_struct_buff);
 
@@ -2172,6 +2187,54 @@ data_type_t parse_type(){
 
                         result.base_type = TYPE_STRUCT;
                         result.struct_tag = unamed_struct_str;
+
+                        break;
+                    }
+                    else
+                        parse_error("expected '{' or identifier after 'struct' keyword");
+                }
+                else
+                    parse_error("cannot include multiple base type specifiers in one type");
+                break;
+            }
+
+            case KEYW_union: {
+                if (!result.base_type){
+                    advance_token();
+                    if (curr_token.type == TOK_IDENTIFIER){
+                        result.base_type = TYPE_UNION;
+                        result.union_tag = curr_token.identifier;
+                        advance_token();
+                    } else
+                    if (curr_token.type == TOK_OPEN_BRACE){
+                        advance_token();
+                        
+                        static size_t unamed_union_count = 0;
+
+                        static char unamed_union_buff[4096];
+
+                        snprintf(unamed_union_buff, 4096, ".unamed_union_%lu", unamed_union_count++);
+
+                        char* unamed_union_str = strdup(unamed_union_buff);
+
+                        extern char** all_identifier_strings;
+
+                        pback_array(&all_identifier_strings, &unamed_union_str);
+
+                        symbol_t* parse_struct_declaration();
+
+                        symbol_t* struct_elems = parse_struct_declaration();
+
+                        symbol_t struct_sym = (symbol_t){
+                            .data_type.base_type = TYPE_UNION,
+                            .name = unamed_union_str,
+                            .struct_members = struct_elems,
+                            .symbol_type = SYM_UNION,
+                        };
+                        pback_array(&global_scope->top_scope, &struct_sym);
+
+                        result.base_type = TYPE_UNION;
+                        result.struct_tag = unamed_union_str;
 
                         break;
                     }
@@ -2603,11 +2666,15 @@ node_t parse_node_clone(node_t node){
             };
         }
         
+        case NOD_UNION_MEMBER_ACCESS:
+        case NOD_UNION_POINTER_MEMBER_ACCESS:
+        case NOD_POINTER_MEMBER_ACCESS:
+        case NOD_MEMBER_ACCESS:
         case NOD_STRUCTURE_POINTER_MEMBER_ACCESS:
         case NOD_STRUCTURE_MEMBER_ACCESS: {
             return (node_t){
                 .type = node.type,
-                .member_access_node._struct = make_node(parse_node_clone(*node.member_access_node._struct)),
+                .member_access_node.compound = make_node(parse_node_clone(*node.member_access_node.compound)),
                 .member_access_node.member = node.member_access_node.member
             };
         }

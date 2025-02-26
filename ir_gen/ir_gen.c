@@ -1249,7 +1249,7 @@ static void ir_gen_node(node_t node){
             pback_array(&ir_code, &ir_node);
 
             
-            if (8 <= return_size && return_size <= 16){
+            if (8 < return_size && return_size <= 16){
                 value = var_gen(return_size);
 
                 ir_node = (ir_node_t){
@@ -1428,8 +1428,16 @@ static void ir_gen_node(node_t node){
         case NOD_DEREFERENCE: {
             ir_gen_node(*node.unary_node.value);
             ir_node = (ir_node_t){
-                .instruction = INST_LOAD_ADDRESS,
+                .instruction = INST_COPY,
                 .op_1 = value,
+                .dst.type = REG_R11,
+                .size = 8
+            };
+            pback_array(&ir_code, &ir_node);
+
+            ir_node = (ir_node_t){
+                .instruction = INST_COPY,
+                .op_1.type = MEM_ADDRESS,
                 .dst = var_gen(get_type_size(*node.unary_node.value->d_type.ptr_derived_type)),
                 .size = get_type_size(*node.unary_node.value->d_type.ptr_derived_type)
             };
@@ -1740,18 +1748,24 @@ static void ir_gen_node(node_t node){
         }
 
         case NOD_STRUCTURE_MEMBER_ACCESS: {
-            ir_gen_node(*node.member_access_node._struct);
+            ir_gen_node(*node.member_access_node.compound);
 
             size_t get_structure_member_size(char* _struct, char* member);
             size_t get_structure_member_offset(char* _struct, char* member);
 
-            value = get_val_offset(value, get_structure_member_offset(node.member_access_node._struct->d_type.struct_tag, node.member_access_node.member));
+            value = get_val_offset(value, get_structure_member_offset(node.member_access_node.compound->d_type.struct_tag, node.member_access_node.member));
+
+            return;
+        }
+
+        case NOD_UNION_MEMBER_ACCESS: {
+            ir_gen_node(*node.member_access_node.compound);
 
             return;
         }
 
         case NOD_STRUCTURE_POINTER_MEMBER_ACCESS: {
-            ir_gen_node(*node.member_access_node._struct);
+            ir_gen_node(*node.member_access_node.compound);
 
             size_t get_structure_member_size(char* _struct, char* member);
             size_t get_structure_member_offset(char* _struct, char* member);
@@ -1759,13 +1773,48 @@ static void ir_gen_node(node_t node){
             ir_node = (ir_node_t){
                 .instruction = INST_ADD,
                 .op_1 = value,
-                .op_2 = (ir_operand_t){.type = IMM_U64, .immediate = get_structure_member_offset(node.member_access_node._struct->d_type.ptr_derived_type->struct_tag, node.member_access_node.member)},
+                .op_2 = (ir_operand_t){.type = IMM_U64, .immediate = get_structure_member_offset(node.member_access_node.compound->d_type.ptr_derived_type->struct_tag, node.member_access_node.member)},
                 .dst.type = REG_R11,
                 .size = 8
             };
             pback_array(&ir_code, &ir_node);
 
             value.type = MEM_ADDRESS;
+
+            ir_node = (ir_node_t){
+                .instruction = INST_COPY,
+                .op_1 = value,
+                .dst = var_gen(get_type_size(node.d_type)),
+                .size = get_type_size(node.d_type)
+            };
+            pback_array(&ir_code, &ir_node);
+
+            value = ir_node.dst;
+
+            return;
+        }
+
+        case NOD_UNION_POINTER_MEMBER_ACCESS: {
+            ir_gen_node(*node.member_access_node.compound);
+            
+            ir_node = (ir_node_t){
+                .instruction = INST_COPY,
+                .op_1 = value,
+                .dst = (ir_operand_t){.type = REG_R11}
+            };
+            pback_array(&ir_code, &ir_node);
+
+            value.type = MEM_ADDRESS;
+
+            ir_node = (ir_node_t){
+                .instruction = INST_COPY,
+                .op_1 = value,
+                .dst = var_gen(get_type_size(node.d_type)),
+                .size = get_type_size(node.d_type)
+            };
+            pback_array(&ir_code, &ir_node);
+
+            value = ir_node.dst;
 
             return;
         }
@@ -1810,9 +1859,18 @@ static void ir_gen_node(node_t node){
 
         case NOD_INIT_STRUCTURE: {
             ir_gen_node(*node.assign_node.destination);
-            ir_operand_t struct_start = value;
-            ir_gen_init_compound_literal(node.assign_node.source, value);
-            value = struct_start;
+            ir_operand_t struct_origin = value;
+            ir_operand_t struct_start = var_gen(get_type_size(node.d_type));
+            ir_gen_init_compound_literal(node.assign_node.source, struct_start);
+            
+            ir_node = (ir_node_t){
+                .instruction = INST_COPY,
+                .op_1 = struct_start,
+                .dst = struct_origin,
+                .size = get_type_size(node.d_type)
+            };
+            pback_array(&ir_code, &ir_node);
+            
             return;
         }
 
@@ -2048,10 +2106,6 @@ static size_t get_type_size(data_type_t type){
         case TYPE_VOID:
             return 1; /* im lazy, sue me */
         case TYPE_STRUCT: {
-
-            symbol_t *find_symbol(scope_t *scope, symbol_t target, size_t *scope_id_out, size_t *var_num_out);
-            size_t get_type_alignment(data_type_t type);
-
             symbol_t* _struct = find_symbol(global_scope, (symbol_t){.name = type.struct_tag, .symbol_type = SYM_STRUCTURE}, NULL, NULL);
 
             size_t size = get_type_size(_struct->struct_members[0].data_type);
@@ -2072,6 +2126,19 @@ static size_t get_type_size(data_type_t type){
 
             if (size % largest_elem_alignment)
                 size += largest_elem_alignment - (size % largest_elem_alignment);
+
+            return size;
+        }
+        case TYPE_UNION: {
+            symbol_t* _union = find_symbol(global_scope, (symbol_t){.name = type.union_tag, .symbol_type = SYM_UNION}, NULL, NULL);
+
+            size_t size = get_type_size(_union->struct_members[0].data_type);
+
+            for (size_t i = 1; i < get_count_array(_union->struct_members); ++i){
+                size_t elem_size = get_type_size(_union->struct_members[i].data_type);
+                if (size < elem_size)
+                    size = elem_size;
+            }
 
             return size;
         }
@@ -2208,9 +2275,9 @@ void ir_gen_lvalue(node_t node){
             size_t get_structure_member_offset(char* _struct, char* member);
             
             /* will always give an lvalue-ish */
-            ir_gen_node(*node.member_access_node._struct);
+            ir_gen_node(*node.member_access_node.compound);
 
-            value = get_val_offset(value, get_structure_member_offset(node.member_access_node._struct->d_type.struct_tag, node.member_access_node.member));
+            value = get_val_offset(value, get_structure_member_offset(node.member_access_node.compound->d_type.struct_tag, node.member_access_node.member));
 
             ir_node = (ir_node_t){
                 .instruction = INST_GET_ADDRESS,
@@ -2225,15 +2292,36 @@ void ir_gen_lvalue(node_t node){
             return;
         }
 
+        case NOD_UNION_MEMBER_ACCESS: {
+            ir_gen_node(*node.member_access_node.compound);
+            
+            ir_node = (ir_node_t){
+                .instruction = INST_GET_ADDRESS,
+                .op_1 = value,
+                .dst = var_gen(8),
+                .size = 8
+            };
+            pback_array(&ir_code, &ir_node);
+
+            value = ir_node.dst;
+            return;
+        }
+
+        case NOD_UNION_POINTER_MEMBER_ACCESS: {
+            ir_gen_node(*node.member_access_node.compound);
+
+            return;
+        }
+
         case NOD_STRUCTURE_POINTER_MEMBER_ACCESS: {
-            ir_gen_node(*node.member_access_node._struct);
+            ir_gen_node(*node.member_access_node.compound);
 
             ir_node = (ir_node_t){
                 .instruction = INST_ADD,
                 .op_1 = value,
                 .op_2 = (ir_operand_t){
                     .type = IMM_U64,
-                    .immediate = get_structure_member_offset(node.member_access_node._struct->d_type.ptr_derived_type->struct_tag, node.member_access_node.member)
+                    .immediate = get_structure_member_offset(node.member_access_node.compound->d_type.ptr_derived_type->struct_tag, node.member_access_node.member)
                 },
                 .dst = var_gen(8),
                 .size = 8
@@ -2362,7 +2450,6 @@ size_t get_type_alignment(data_type_t type){
         }
 
         case TYPE_STRUCT: {
-            symbol_t *find_symbol(scope_t *scope, symbol_t target, size_t *scope_id_out, size_t *var_num_out);
             symbol_t* _struct = find_symbol(global_scope, (symbol_t){.name = type.struct_tag, .symbol_type = SYM_STRUCTURE}, NULL, NULL);
 
             size_t largest_alignment = 0;
@@ -2370,6 +2457,21 @@ size_t get_type_alignment(data_type_t type){
 
             for (size_t i = 0; i < get_count_array(_struct->struct_members); ++i){
                 elem_alignment = get_type_alignment(_struct->struct_members[i].data_type);
+                if (largest_alignment < elem_alignment)
+                    largest_alignment = elem_alignment;
+            }
+
+            return largest_alignment;
+        }
+
+        case TYPE_UNION: {
+            symbol_t* _union = find_symbol(global_scope, (symbol_t){.name = type.struct_tag, .symbol_type = SYM_UNION}, NULL, NULL);
+
+            size_t largest_alignment = 0;
+            size_t elem_alignment;
+
+            for (size_t i = 0; i < get_count_array(_union->struct_members); ++i){
+                elem_alignment = get_type_alignment(_union->struct_members[i].data_type);
                 if (largest_alignment < elem_alignment)
                     largest_alignment = elem_alignment;
             }

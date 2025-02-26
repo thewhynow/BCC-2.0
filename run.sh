@@ -7,7 +7,7 @@ else
     if [[ $(uname) == "Linux" ]]; then
         gcc code.c.s -o code
     else
-        gcc code.c.s -arch x86_64 -o code
+        gcc code.c.s my_vec.s -arch x86_64 -o code
     fi
 fi
 

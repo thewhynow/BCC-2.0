@@ -842,6 +842,10 @@ token_type_t is_keyword(const char* str, size_t* increment_counter){
     if (!keyword_strcmp("typedef", str, 7)){
         *increment_counter += 6;
         return KEYW_typedef;
+    } else
+    if (!keyword_strcmp("union", str, 5)){
+        *increment_counter += 4;
+        return KEYW_union;
     }
     else
         return TOK_NULL;
