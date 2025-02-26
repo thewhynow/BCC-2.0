@@ -18,8 +18,7 @@ FEATURES SUPPORTED:
 
 
 PARTS OF THE C-STANDARD IGNORED:
-    - allowing function declarations inside scope
-    - operator[] has lower precedence than unary operators
+    - allowing function, struct, and symbol declarations inside scope
     ** there are a crap ton more not followed but these are the commonly used ones **
 
 TO COMPILE YOUR OWN CODE:
