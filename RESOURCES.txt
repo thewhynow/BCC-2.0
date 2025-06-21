@@ -1,0 +1,9 @@
+https://wiki.osdev.org/Bare_Bones     : basic kernel + bootloader
+https://wiki.osdev.org/Meaty_Skeleton : project structure
+https://www.youtube.com/watch?v=pfWjteMpcxE     : GDT
+https://www.youtube.com/watch?v=jwulDRMQ53I     : GDT .. again (SOB)
+https://www.youtube.com/watch?v=XGSOl1QZVKI : PORTS (ignore the IDT section)
+https://littleosbook.github.io/#enabling-paging   : Paging
+http://www.brokenthorn.com/Resources/OSDev18.html : Paging
+http://www.brokenthorn.com/Resources/OSDev20.html     : FDC
+https://www.isdaman.com/alsos/hardware/fdc/floppy.htm : FDC
